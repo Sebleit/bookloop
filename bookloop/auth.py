@@ -1,6 +1,5 @@
 # Person 1 owns this file: login, current user and role checks.
 import os
-from datetime import datetime, timezone
 from typing import Any
 
 import streamlit as st
@@ -12,7 +11,44 @@ from bookloop.storage import db
 
 
 def _is_laptop_mode() -> bool:
-    return not bool(os.environ.get("DATABASE_URL"))
+    return not bool(_setting("DATABASE_URL"))
+
+
+def _setting(name: str) -> str | None:
+    """Read a project setting from the environment or Streamlit secrets."""
+    value = os.environ.get(name)
+    if value:
+        return value
+
+    try:
+        value = st.secrets.get(name)
+    except Exception:
+        return None
+    return str(value) if value else None
+
+
+def _auth_error_message(error: Exception, action: str) -> str:
+    """Map common Supabase Auth errors to safe, useful messages."""
+    code = str(getattr(error, "code", "") or "").lower()
+    message = str(getattr(error, "message", "") or error).lower()
+    details = f"{code} {message}"
+
+    if "email_not_confirmed" in details or "email not confirmed" in details:
+        return "Please confirm your email before logging in."
+    if any(
+        marker in details
+        for marker in ("invalid_credentials", "invalid login credentials", "invalid email or password")
+    ):
+        return "Email or password was not accepted. Check them and try again."
+    if "already registered" in details or "user_already_exists" in details:
+        return "An account with this email already exists. Log in instead."
+    if "weak_password" in details or "password should be" in details:
+        return "Choose a longer password that meets the project's password requirements."
+    if "over_email_send_rate_limit" in details or "rate limit" in details:
+        return "Too many attempts. Wait a little while, then try again."
+
+    verb = "sign up" if action == "sign up" else "log in"
+    return f"We couldn't {verb} with Supabase. Check the app's Supabase settings and try again."
 
 
 def _profile_from_row(row: Any) -> Profile:
@@ -51,8 +87,8 @@ def _demo_users() -> list[Profile]:
 
 
 def _supabase_client():
-    url = os.environ.get("SUPABASE_URL")
-    key = os.environ.get("SUPABASE_KEY")
+    url = _setting("SUPABASE_URL")
+    key = _setting("SUPABASE_KEY")
     if not url or not key:
         st.error("Online login is not configured. Ask the project owner to check the app settings.")
         return None
@@ -81,56 +117,65 @@ def _profile_for_auth_user(auth_user: Any) -> Profile | None:
 
 def _sign_up(client: Any, display_name: str, email: str, password: str) -> None:
     try:
-        response = client.auth.sign_up({"email": email, "password": password})
-        auth_user = response.user
-        if auth_user is None:
-            st.error("We couldn't create the account. Check your details and try again.")
-            return
+        response = client.auth.sign_up(
+            {
+                "email": email,
+                "password": password,
+                "options": {"data": {"display_name": display_name}},
+            }
+        )
+    except Exception as error:
+        st.error(_auth_error_message(error, "sign up"))
+        return
 
-        created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        with db.transaction() as connection:
-            connection.execute(
-                text(
-                    "INSERT INTO profiles (id, display_name, role, status, created_at) "
-                    "VALUES (:id, :display_name, 'student', 'active', :created_at) "
-                    "ON CONFLICT (id) DO NOTHING"
-                ),
-                {
-                    "id": str(auth_user.id),
-                    "display_name": display_name,
-                    "created_at": created_at,
-                },
-            )
+    auth_user = response.user
+    if auth_user is None:
+        st.error("Supabase didn't return a new account. Check the email and try logging in.")
+        return
 
-        if response.session is None:
-            st.success("Account created. Sign in after confirming your email.")
-            return
+    if response.session is None:
+        st.success("Account created. Confirm the email, then log in.")
+        return
 
+    try:
         profile = _profile_for_auth_user(auth_user)
-        if profile is None:
-            st.error("Your account was created, but its profile could not be loaded. Ask for help.")
-            return
-        _save_user(profile, "online")
-        st.rerun()
     except Exception:
-        st.error("We couldn't create the account. Check your details and try again.")
+        st.error(
+            "The account was created, but BookLoop couldn't read its profile. "
+            "Check that DATABASE_URL points to this project's database."
+        )
+        return
+    if profile is None:
+        st.error("The account was created, but its profile is missing. Ask the project owner for help.")
+        return
+    _save_user(profile, "online")
+    st.rerun()
 
 
 def _sign_in(client: Any, email: str, password: str) -> None:
     try:
         response = client.auth.sign_in_with_password({"email": email, "password": password})
-        if response.user is None:
-            st.error("Email or password was not accepted.")
-            return
+    except Exception as error:
+        st.error(_auth_error_message(error, "log in"))
+        return
 
+    if response.user is None:
+        st.error("Email or password was not accepted. Check them and try again.")
+        return
+
+    try:
         profile = _profile_for_auth_user(response.user)
-        if profile is None:
-            st.error("Your account profile is missing. Ask the project owner for help.")
-            return
-        _save_user(profile, "online")
-        st.rerun()
     except Exception:
-        st.error("Email or password was not accepted.")
+        st.error(
+            "Supabase accepted your login, but BookLoop couldn't read your profile. "
+            "Check that DATABASE_URL points to this project's database."
+        )
+        return
+    if profile is None:
+        st.error("Your login was accepted, but your BookLoop profile is missing. Ask the project owner for help.")
+        return
+    _save_user(profile, "online")
+    st.rerun()
 
 
 def _show_dev_login() -> None:

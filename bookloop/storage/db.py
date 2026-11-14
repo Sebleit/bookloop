@@ -3,6 +3,7 @@ import os
 from contextlib import contextmanager
 from typing import Iterator
 
+import streamlit as st
 from sqlalchemy import create_engine as sqlalchemy_create_engine
 from sqlalchemy import event
 from sqlalchemy.engine import Connection, Engine
@@ -14,8 +15,19 @@ def _normalise_database_url(database_url: str) -> str:
     return database_url
 
 
+def _database_url_setting() -> str | None:
+    value = os.environ.get("DATABASE_URL")
+    if value:
+        return value
+    try:
+        value = st.secrets.get("DATABASE_URL")
+    except Exception:
+        return None
+    return str(value) if value else None
+
+
 def _create_engine(database_url: str | None = None) -> Engine:
-    configured_url = database_url or os.environ.get("DATABASE_URL")
+    configured_url = database_url or _database_url_setting()
     if configured_url:
         url = _normalise_database_url(configured_url)
     else:
