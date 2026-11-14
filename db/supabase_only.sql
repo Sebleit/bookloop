@@ -16,6 +16,14 @@ ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE entity_ids ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
 
+-- A signed-in user can read only their own profile through the Supabase API.
+DROP POLICY IF EXISTS profiles_read_own ON public.profiles;
+CREATE POLICY profiles_read_own
+ON public.profiles
+FOR SELECT
+TO authenticated
+USING (id = (SELECT auth.uid())::text);
+
 -- Create a BookLoop profile as part of each Supabase Auth sign-up.
 CREATE OR REPLACE FUNCTION public.bookloop_create_profile_for_auth_user()
 RETURNS trigger

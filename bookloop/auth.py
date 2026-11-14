@@ -102,16 +102,17 @@ def _supabase_client():
     return client
 
 
-def _profile_for_auth_user(auth_user: Any) -> Profile | None:
+def _profile_for_auth_user(auth_user: Any, client: Any) -> Profile | None:
     user_id = str(auth_user.id)
-    with db.transaction() as connection:
-        row = connection.execute(
-            text(
-                "SELECT id, display_name, role, status, created_at "
-                "FROM profiles WHERE id = :id"
-            ),
-            {"id": user_id},
-        ).mappings().first()
+    response = (
+        client.table("profiles")
+        .select("id, display_name, role, status, created_at")
+        .eq("id", user_id)
+        .limit(1)
+        .execute()
+    )
+    rows = response.data or []
+    row = rows[0] if rows else None
     return _profile_from_row(row) if row else None
 
 
@@ -138,11 +139,12 @@ def _sign_up(client: Any, display_name: str, email: str, password: str) -> None:
         return
 
     try:
-        profile = _profile_for_auth_user(auth_user)
+        profile = _profile_for_auth_user(auth_user, client)
     except Exception:
         st.error(
             "The account was created, but BookLoop couldn't read its profile. "
-            "Check that DATABASE_URL points to this project's database."
+            "Check the profiles read policy and that the updated "
+            "db/supabase_only.sql has been run in Supabase."
         )
         return
     if profile is None:
@@ -164,11 +166,12 @@ def _sign_in(client: Any, email: str, password: str) -> None:
         return
 
     try:
-        profile = _profile_for_auth_user(response.user)
+        profile = _profile_for_auth_user(response.user, client)
     except Exception:
         st.error(
             "Supabase accepted your login, but BookLoop couldn't read your profile. "
-            "Check that DATABASE_URL points to this project's database."
+            "Check the profiles read policy and that the updated "
+            "db/supabase_only.sql has been run in Supabase."
         )
         return
     if profile is None:
