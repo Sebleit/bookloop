@@ -9,7 +9,7 @@ from sqlalchemy import text
 
 from bookloop.models import Copy, Loop, Offer
 from bookloop.models import Trade
-from bookloop.rules.handoffs import check_code, is_locked
+from bookloop.rules.handoffs import check_code, is_locked, no_show_outcome
 from bookloop.rules.offers import can_accept, can_cancel, is_expired
 from bookloop.storage.db import transaction
 
@@ -381,6 +381,76 @@ def create_loop(
     """Create a loop and reserve all its copies as one atomic database change."""
     with transaction() as connection:
         return _create_loop_in_connection(connection, trades, source, meet_place, meet_time)
+
+
+def loop_participants(loop_id: str) -> list[dict[str, str]]:
+    """Return the people taking part in a loop."""
+    with transaction() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT DISTINCT p.id, p.display_name "
+                "FROM profiles p JOIN trades t ON p.id IN (t.giver_id, t.receiver_id) "
+                "WHERE t.loop_id = :loop_id ORDER BY p.display_name"
+            ),
+            {"loop_id": loop_id},
+        ).mappings().all()
+    return [{"id": row["id"], "display_name": row["display_name"]} for row in rows]
+
+
+def report_no_show(loop_id: str, reporter_id: str, no_show_user_id: str):
+    """Cancel a scheduled loop and return all its reserved copies to available."""
+    with transaction() as connection:
+        loop_row = connection.execute(
+            text(
+                "SELECT id, source, offer_id, round_id, status, meet_place, meet_time, "
+                "no_show_user_id FROM loops WHERE id = :loop_id"
+            ),
+            {"loop_id": loop_id},
+        ).mappings().first()
+        if loop_row is None:
+            raise ValueError("Swap not found.")
+
+        trade_rows = connection.execute(
+            text(
+                "SELECT id, loop_id, copy_id, giver_id, receiver_id, handoff_code, "
+                "code_attempts, status, completed_at FROM trades WHERE loop_id = :loop_id"
+            ),
+            {"loop_id": loop_id},
+        ).mappings().all()
+        current_loop = Loop(**dict(loop_row))
+        current_trades = [_trade_from_row(row) for row in trade_rows]
+        decision = no_show_outcome(current_loop, reporter_id, current_trades)
+        if not decision.allowed:
+            raise ValueError(decision.reason)
+
+        participants = {
+            participant_id
+            for trade in current_trades
+            for participant_id in (trade.giver_id, trade.receiver_id)
+        }
+        if no_show_user_id not in participants or no_show_user_id == reporter_id:
+            raise ValueError("Choose another participant as the no-show user.")
+
+        connection.execute(
+            text(
+                "UPDATE loops SET status = 'cancelled', no_show_user_id = :no_show_user_id "
+                "WHERE id = :loop_id AND status = 'scheduled'"
+            ),
+            {"loop_id": loop_id, "no_show_user_id": no_show_user_id},
+        )
+        connection.execute(
+            text("UPDATE trades SET status = 'cancelled' WHERE loop_id = :loop_id AND status = 'pending'"),
+            {"loop_id": loop_id},
+        )
+        connection.execute(
+            text(
+                "UPDATE copies SET status = 'available' "
+                "WHERE id IN (SELECT copy_id FROM trades WHERE loop_id = :loop_id) "
+                "AND status = 'reserved'"
+            ),
+            {"loop_id": loop_id},
+        )
+        return decision
 
 
 def _trade_from_row(row: Mapping[str, Any]) -> Trade:
