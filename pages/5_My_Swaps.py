@@ -8,6 +8,7 @@ def main() -> None:
     user = auth.current_user()
     st.title("My Swaps")
     st.write("Your upcoming handoffs and their meeting details.")
+    st.page_link("pages/6_Profile.py", label="Open your Profile to leave a review")
 
     try:
         swaps = trades_for_user(user.id)
