@@ -2,7 +2,7 @@ from sqlalchemy import text
 
 from bookloop.models import Loop, Trade
 from bookloop.rules.handoffs import check_code, is_locked, no_show_outcome
-from bookloop.storage.swaps_repo import confirm_handoff, trades_for_user
+from bookloop.storage.swaps_repo import confirm_handoff, report_no_show, trades_for_user
 
 
 def trade(code_attempts: int = 0, status: str = "pending") -> Trade:
@@ -182,3 +182,84 @@ def test_trades_for_user_returns_pending_handoff(database, make_user, make_copy)
 
     assert len(swaps) == 1
     assert swaps[0]["trade"].id == current_trade.id
+
+
+def save_two_trade_loop(database, loop_id, alice, bob, copy_a, copy_b):
+    with database.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO loops "
+                "(id, source, offer_id, round_id, status, meet_place, meet_time, no_show_user_id) "
+                "VALUES (:id, 'offer', NULL, NULL, 'scheduled', 'Main library', "
+                "'2026-11-20T14:00:00Z', NULL)"
+            ),
+            {"id": loop_id},
+        )
+        for trade_id, copy_id, giver_id, receiver_id in (
+            ("trade-a", copy_a.id, alice.id, bob.id),
+            ("trade-b", copy_b.id, bob.id, alice.id),
+        ):
+            connection.execute(
+                text(
+                    "INSERT INTO trades "
+                    "(id, loop_id, copy_id, giver_id, receiver_id, handoff_code, "
+                    "code_attempts, status, completed_at) "
+                    "VALUES (:id, :loop_id, :copy_id, :giver_id, :receiver_id, "
+                    "'1234', 0, 'pending', NULL)"
+                ),
+                {
+                    "id": trade_id,
+                    "loop_id": loop_id,
+                    "copy_id": copy_id,
+                    "giver_id": giver_id,
+                    "receiver_id": receiver_id,
+                },
+            )
+
+
+def test_report_no_show_cancels_loop_and_releases_copies(database, make_user, make_copy):
+    alice = make_user(name="Alice")
+    bob = make_user(name="Bob")
+    copy_a = make_copy(owner=alice, status="reserved")
+    copy_b = make_copy(owner=bob, status="reserved")
+    save_two_trade_loop(database, "loop-no-show", alice, bob, copy_a, copy_b)
+
+    report_no_show("loop-no-show", alice.id, bob.id)
+
+    with database.begin() as connection:
+        loop_status, no_show = connection.execute(
+            text("SELECT status, no_show_user_id FROM loops WHERE id = 'loop-no-show'")
+        ).first()
+        trade_statuses = connection.execute(
+            text("SELECT status FROM trades WHERE loop_id = 'loop-no-show' ORDER BY id")
+        ).scalars().all()
+        copy_statuses = connection.execute(
+            text("SELECT status FROM copies WHERE id IN (:a, :b) ORDER BY id"),
+            {"a": copy_a.id, "b": copy_b.id},
+        ).scalars().all()
+    assert loop_status == "cancelled"
+    assert no_show == bob.id
+    assert trade_statuses == ["cancelled", "cancelled"]
+    assert copy_statuses == ["available", "available"]
+
+
+def test_stranger_cannot_cancel_loop_as_no_show(database, make_user, make_copy):
+    alice = make_user(name="Alice")
+    bob = make_user(name="Bob")
+    carla = make_user(name="Carla")
+    copy_a = make_copy(owner=alice, status="reserved")
+    copy_b = make_copy(owner=bob, status="reserved")
+    save_two_trade_loop(database, "loop-no-show", alice, bob, copy_a, copy_b)
+
+    try:
+        report_no_show("loop-no-show", carla.id, bob.id)
+    except ValueError as error:
+        assert "swap" in str(error)
+    else:
+        raise AssertionError("A stranger should not report a no-show")
+
+    with database.begin() as connection:
+        status = connection.execute(
+            text("SELECT status FROM loops WHERE id = 'loop-no-show'")
+        ).scalar_one()
+    assert status == "scheduled"

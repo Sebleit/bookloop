@@ -1,7 +1,12 @@
 import streamlit as st
 
 from bookloop import auth
-from bookloop.storage.swaps_repo import confirm_handoff, trades_for_user
+from bookloop.storage.swaps_repo import (
+    confirm_handoff,
+    loop_participants,
+    report_no_show,
+    trades_for_user,
+)
 
 
 def main() -> None:
@@ -43,6 +48,22 @@ def main() -> None:
                         st.rerun()
                     else:
                         st.error(decision.reason)
+
+        participants = [
+            participant
+            for participant in loop_participants(trade.loop_id)
+            if participant["id"] != user.id
+        ]
+        if participants and st.button("Report no-show", key=f"no-show-{trade.loop_id}"):
+            no_show_user = participants[0]
+            try:
+                report_no_show(trade.loop_id, user.id, no_show_user["id"])
+                st.success(
+                    f"Swap cancelled. {no_show_user['display_name']} was recorded as a no-show."
+                )
+                st.rerun()
+            except ValueError as error:
+                st.error(str(error))
 
 
 if __name__ == "__main__":
