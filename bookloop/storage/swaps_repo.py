@@ -8,6 +8,8 @@ from uuid import uuid4
 from sqlalchemy import text
 
 from bookloop.models import Copy, Loop, Offer
+from bookloop.models import Trade
+from bookloop.rules.handoffs import check_code, is_locked
 from bookloop.rules.offers import can_accept, can_cancel, is_expired
 from bookloop.storage.db import transaction
 
@@ -379,3 +381,113 @@ def create_loop(
     """Create a loop and reserve all its copies as one atomic database change."""
     with transaction() as connection:
         return _create_loop_in_connection(connection, trades, source, meet_place, meet_time)
+
+
+def _trade_from_row(row: Mapping[str, Any]) -> Trade:
+    return Trade(
+        id=row["id"],
+        loop_id=row["loop_id"],
+        copy_id=row["copy_id"],
+        giver_id=row["giver_id"],
+        receiver_id=row["receiver_id"],
+        handoff_code=row["handoff_code"],
+        code_attempts=row["code_attempts"],
+        status=row["status"],
+        completed_at=row["completed_at"],
+    )
+
+
+def trades_for_user(user_id: str) -> list[dict[str, Any]]:
+    """Return a user's pending handoffs with meeting and book details."""
+    with transaction() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT t.id, t.loop_id, t.copy_id, t.giver_id, t.receiver_id, "
+                "t.handoff_code, t.code_attempts, t.status, t.completed_at, "
+                "l.meet_place, l.meet_time, b.title "
+                "FROM trades t "
+                "JOIN loops l ON l.id = t.loop_id "
+                "JOIN copies c ON c.id = t.copy_id "
+                "JOIN books b ON b.id = c.book_id "
+                "WHERE (t.giver_id = :user_id OR t.receiver_id = :user_id) "
+                "AND t.status = 'pending' AND l.status = 'scheduled' "
+                "ORDER BY l.meet_time, t.id"
+            ),
+            {"user_id": user_id},
+        ).mappings().all()
+
+    return [
+        {
+            "trade": _trade_from_row(row),
+            "meet_place": row["meet_place"],
+            "meet_time": row["meet_time"],
+            "title": row["title"],
+        }
+        for row in rows
+    ]
+
+
+def confirm_handoff(trade_id: str, giver_id: str, entered_code: str):
+    """Confirm a handoff or record a wrong code attempt atomically."""
+    with transaction() as connection:
+        row = connection.execute(
+            text(
+                "SELECT id, loop_id, copy_id, giver_id, receiver_id, handoff_code, "
+                "code_attempts, status, completed_at "
+                "FROM trades WHERE id = :trade_id"
+            ),
+            {"trade_id": trade_id},
+        ).mappings().first()
+        if row is None:
+            raise ValueError("Trade not found.")
+
+        trade = _trade_from_row(row)
+        if trade.giver_id != giver_id:
+            raise ValueError("Only the giver can confirm this handoff.")
+
+        decision = check_code(trade, entered_code)
+        if not decision.allowed:
+            if trade.status == "pending" and not is_locked(trade):
+                connection.execute(
+                    text(
+                        "UPDATE trades SET code_attempts = code_attempts + 1 "
+                        "WHERE id = :trade_id AND code_attempts < 3"
+                    ),
+                    {"trade_id": trade.id},
+                )
+            return decision
+
+        completed_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        updated_trade = connection.execute(
+            text(
+                "UPDATE trades SET status = 'completed', completed_at = :completed_at "
+                "WHERE id = :trade_id AND status = 'pending'"
+            ),
+            {"trade_id": trade.id, "completed_at": completed_at},
+        )
+        if updated_trade.rowcount != 1:
+            raise ValueError("This trade is no longer pending.")
+
+        updated_copy = connection.execute(
+            text(
+                "UPDATE copies SET owner_id = :receiver_id, status = 'available' "
+                "WHERE id = :copy_id AND status = 'reserved'"
+            ),
+            {"receiver_id": trade.receiver_id, "copy_id": trade.copy_id},
+        )
+        if updated_copy.rowcount != 1:
+            raise ValueError("The copy is not reserved for this trade.")
+
+        remaining = connection.execute(
+            text(
+                "SELECT COUNT(*) FROM trades "
+                "WHERE loop_id = :loop_id AND status = 'pending'"
+            ),
+            {"loop_id": trade.loop_id},
+        ).scalar_one()
+        if remaining == 0:
+            connection.execute(
+                text("UPDATE loops SET status = 'completed' WHERE id = :loop_id"),
+                {"loop_id": trade.loop_id},
+            )
+        return decision
