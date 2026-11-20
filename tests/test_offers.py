@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from bookloop.models import Copy, Offer
 from bookloop.rules.offers import can_accept, can_cancel, can_make_offer, is_expired
+from bookloop.storage.swaps_repo import create_offer, pending_offer_count
 
 
 def copy(id: str, owner_id: str, status: str = "available") -> Copy:
@@ -115,3 +116,36 @@ def test_is_expired_at_exactly_72_hours():
     assert is_expired(
         offer(), now=datetime(2026, 11, 17, 0, tzinfo=timezone.utc)
     ) is True
+
+
+def test_create_offer_saves_pending_offer(database, make_user, make_copy):
+    alice = make_user(name="Alice")
+    bob = make_user(name="Bob")
+    offered = make_copy(owner=alice)
+    requested = make_copy(owner=bob)
+
+    saved = create_offer(
+        alice.id,
+        offered.id,
+        requested.id,
+        "2026-11-23T00:00:00Z",
+    )
+
+    assert saved.status == "pending"
+    assert saved.proposer_id == alice.id
+    assert pending_offer_count(alice.id) == 1
+
+
+def test_pending_offer_count_ignores_finished_offers(database, make_user, make_copy, make_offer):
+    alice = make_user(name="Alice")
+    bob = make_user(name="Bob")
+    offered = make_copy(owner=alice)
+    requested = make_copy(owner=bob)
+    make_offer(
+        proposer=alice,
+        offered_copy=offered,
+        requested_copy=requested,
+        status="cancelled",
+    )
+
+    assert pending_offer_count(alice.id) == 0
