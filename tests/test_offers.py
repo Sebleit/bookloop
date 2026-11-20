@@ -2,7 +2,13 @@ from datetime import datetime, timezone
 
 from bookloop.models import Copy, Offer
 from bookloop.rules.offers import can_accept, can_cancel, can_make_offer, is_expired
-from bookloop.storage.swaps_repo import create_offer, pending_offer_count
+from bookloop.storage.swaps_repo import (
+    accept_offer,
+    cancel_offer,
+    create_offer,
+    decline_offer,
+    pending_offer_count,
+)
 
 
 def copy(id: str, owner_id: str, status: str = "available") -> Copy:
@@ -149,3 +155,66 @@ def test_pending_offer_count_ignores_finished_offers(database, make_user, make_c
     )
 
     assert pending_offer_count(alice.id) == 0
+
+
+def test_cancel_offer_changes_pending_status(database, make_user, make_copy, make_offer):
+    alice = make_user(name="Alice")
+    bob = make_user(name="Bob")
+    current_offer = make_offer(
+        proposer=alice,
+        offered_copy=make_copy(owner=alice),
+        requested_copy=make_copy(owner=bob),
+    )
+
+    cancel_offer(current_offer, alice.id)
+
+    with database.begin() as connection:
+        status = connection.execute(
+            __import__("sqlalchemy").text("SELECT status FROM offers WHERE id = :id"),
+            {"id": current_offer.id},
+        ).scalar_one()
+    assert status == "cancelled"
+
+
+def test_decline_offer_changes_pending_status(database, make_user, make_copy, make_offer):
+    alice = make_user(name="Alice")
+    bob = make_user(name="Bob")
+    current_offer = make_offer(
+        proposer=alice,
+        offered_copy=make_copy(owner=alice),
+        requested_copy=make_copy(owner=bob),
+    )
+
+    decline_offer(current_offer, bob.id)
+
+    with database.begin() as connection:
+        status = connection.execute(
+            __import__("sqlalchemy").text("SELECT status FROM offers WHERE id = :id"),
+            {"id": current_offer.id},
+        ).scalar_one()
+    assert status == "declined"
+
+
+def test_accept_offer_reserves_both_copies(database, make_user, make_copy, make_offer):
+    alice = make_user(name="Alice")
+    bob = make_user(name="Bob")
+    offered = make_copy(owner=alice)
+    requested = make_copy(owner=bob)
+    current_offer = make_offer(
+        proposer=alice,
+        offered_copy=offered,
+        requested_copy=requested,
+        expires_at="2026-11-23T00:00:00Z",
+    )
+
+    loop = accept_offer(current_offer, bob.id, offered, requested)
+
+    assert loop.source == "offer"
+    with database.begin() as connection:
+        statuses = connection.execute(
+            __import__("sqlalchemy").text(
+                "SELECT status FROM copies WHERE id IN (:offered, :requested) ORDER BY id"
+            ),
+            {"offered": offered.id, "requested": requested.id},
+        ).scalars().all()
+    assert statuses == ["reserved", "reserved"]
