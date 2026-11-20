@@ -8,6 +8,7 @@ from uuid import uuid4
 from sqlalchemy import text
 
 from bookloop.models import Copy, Loop, Offer
+from bookloop.rules.offers import can_accept, can_cancel, is_expired
 from bookloop.storage.db import transaction
 
 
@@ -130,10 +131,157 @@ def create_offer(
     return offer
 
 
-def create_loop(
+def _offer_from_row(row: Mapping[str, Any]) -> Offer:
+    return Offer(
+        id=row["id"],
+        proposer_id=row["proposer_id"],
+        offered_copy_id=row["offered_copy_id"],
+        requested_copy_id=row["requested_copy_id"],
+        status=row["status"],
+        created_at=row["created_at"],
+        expires_at=row["expires_at"],
+    )
+
+
+def offers_for_user(user_id: str) -> list[dict[str, Any]]:
+    """Return outgoing and incoming offers with book details for the Offers page."""
+    with transaction() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT o.id, o.proposer_id, o.offered_copy_id, o.requested_copy_id, "
+                "o.status, o.created_at, o.expires_at, "
+                "offered_book.title AS offered_title, requested_book.title AS requested_title, "
+                "requested_copy.owner_id AS requested_owner_id "
+                "FROM offers o "
+                "JOIN copies offered_copy ON offered_copy.id = o.offered_copy_id "
+                "JOIN books offered_book ON offered_book.id = offered_copy.book_id "
+                "JOIN copies requested_copy ON requested_copy.id = o.requested_copy_id "
+                "JOIN books requested_book ON requested_book.id = requested_copy.book_id "
+                "WHERE o.proposer_id = :user_id OR requested_copy.owner_id = :user_id "
+                "ORDER BY o.created_at DESC, o.id DESC"
+            ),
+            {"user_id": user_id},
+        ).mappings().all()
+
+    offers = []
+    for row in rows:
+        offer = _offer_from_row(row)
+        if offer.status == "pending" and is_expired(offer):
+            update_offer_status(offer.id, "expired")
+            offer = Offer(
+                id=offer.id,
+                proposer_id=offer.proposer_id,
+                offered_copy_id=offer.offered_copy_id,
+                requested_copy_id=offer.requested_copy_id,
+                status="expired",
+                created_at=offer.created_at,
+                expires_at=offer.expires_at,
+            )
+        offers.append(
+            {
+                "offer": offer,
+                "offered_title": row["offered_title"],
+                "requested_title": row["requested_title"],
+                "requested_owner_id": row["requested_owner_id"],
+            }
+        )
+    return offers
+
+
+def update_offer_status(offer_id: str, status: str) -> None:
+    """Set an offer status after its page rule has allowed the action."""
+    if status not in {"declined", "cancelled", "expired"}:
+        raise ValueError(f"Invalid offer status: {status}")
+    with transaction() as connection:
+        result = connection.execute(
+            text("UPDATE offers SET status = :status WHERE id = :offer_id AND status = 'pending'"),
+            {"status": status, "offer_id": offer_id},
+        )
+        if result.rowcount != 1:
+            raise ValueError(f"Pending offer not found: {offer_id}")
+
+
+def cancel_offer(offer: Offer, user_id: str) -> None:
+    """Cancel an offer after checking that its proposer is the current user."""
+    decision = can_cancel(offer, user_id)
+    if not decision.allowed:
+        raise ValueError(decision.reason)
+    update_offer_status(offer.id, "cancelled")
+
+
+def decline_offer(offer: Offer, user_id: str) -> None:
+    """Decline an incoming pending offer owned by the current user."""
+    if offer.status != "pending":
+        raise ValueError("Only pending offers can be declined.")
+    if offer.requested_copy_id == offer.offered_copy_id:
+        raise ValueError("An offer must use two different copies.")
+    with transaction() as connection:
+        owner = connection.execute(
+            text("SELECT owner_id FROM copies WHERE id = :copy_id"),
+            {"copy_id": offer.requested_copy_id},
+        ).scalar_one_or_none()
+        if owner != user_id:
+            raise ValueError("Only the requested copy's owner can decline this offer.")
+    update_offer_status(offer.id, "declined")
+
+
+def accept_offer(
+    offer: Offer,
+    accepter_id: str,
+    offered_copy: Copy,
+    requested_copy: Copy,
+    meet_place: str | None = None,
+    meet_time: str | None = None,
+) -> Loop:
+    """Accept an offer, create its two-person loop, and cancel conflicts."""
+    decision = can_accept(offer, accepter_id, offered_copy, requested_copy)
+    if not decision.allowed:
+        raise ValueError(decision.reason)
+
+    with transaction() as connection:
+        loop = _create_loop_in_connection(
+            connection,
+            trades=[
+                {
+                    "copy_id": offered_copy.id,
+                    "giver_id": offer.proposer_id,
+                    "receiver_id": accepter_id,
+                },
+                {
+                    "copy_id": requested_copy.id,
+                    "giver_id": accepter_id,
+                    "receiver_id": offer.proposer_id,
+                },
+            ],
+            source={"source": "offer", "offer_id": offer.id},
+            meet_place=meet_place,
+            meet_time=meet_time,
+        )
+        connection.execute(
+            text("UPDATE offers SET status = 'accepted' WHERE id = :offer_id"),
+            {"offer_id": offer.id},
+        )
+        connection.execute(
+            text(
+                "UPDATE offers SET status = 'cancelled' "
+                "WHERE status = 'pending' AND id != :offer_id "
+                "AND (offered_copy_id IN (:offered_copy_id, :requested_copy_id) "
+                "OR requested_copy_id IN (:offered_copy_id, :requested_copy_id))"
+            ),
+            {
+                "offer_id": offer.id,
+                "offered_copy_id": offered_copy.id,
+                "requested_copy_id": requested_copy.id,
+            },
+        )
+    return loop
+
+
+def _create_loop_in_connection(
+    connection: Any,
     trades: Sequence[Any], source: Any, meet_place: str | None, meet_time: str | None
 ) -> Loop:
-    """Create a loop and reserve all its copies as one atomic database change."""
+    """Create a loop using an already-open transaction."""
     if len(trades) < 2:
         raise ValueError("A loop must contain at least two trades.")
 
@@ -166,61 +314,68 @@ def create_loop(
         no_show_user_id=None,
     )
 
-    with transaction() as connection:
-        for copy_id in copy_ids:
-            row = connection.execute(
-                text("SELECT status FROM copies WHERE id = :copy_id"),
-                {"copy_id": copy_id},
-            ).first()
-            if row is None:
-                raise ValueError(f"Copy not found: {copy_id}")
-            if row.status != "available":
-                raise ValueError(f"Copy is not available: {copy_id}")
+    for copy_id in copy_ids:
+        row = connection.execute(
+            text("SELECT status FROM copies WHERE id = :copy_id"),
+            {"copy_id": copy_id},
+        ).first()
+        if row is None:
+            raise ValueError(f"Copy not found: {copy_id}")
+        if row.status != "available":
+            raise ValueError(f"Copy is not available: {copy_id}")
+
+    connection.execute(
+        text(
+            "INSERT INTO loops "
+            "(id, source, offer_id, round_id, status, meet_place, meet_time, no_show_user_id) "
+            "VALUES (:id, :source, :offer_id, :round_id, :status, :meet_place, :meet_time, NULL)"
+        ),
+        {
+            "id": loop.id,
+            "source": loop.source,
+            "offer_id": loop.offer_id,
+            "round_id": loop.round_id,
+            "status": loop.status,
+            "meet_place": loop.meet_place,
+            "meet_time": loop.meet_time,
+        },
+    )
+
+    for trade in normalized_trades:
+        result = connection.execute(
+            text(
+                "UPDATE copies SET status = 'reserved' "
+                "WHERE id = :copy_id AND status = 'available'"
+            ),
+            {"copy_id": trade["copy_id"]},
+        )
+        if result.rowcount != 1:
+            raise ValueError(f"Copy is no longer available: {trade['copy_id']}")
 
         connection.execute(
             text(
-                "INSERT INTO loops "
-                "(id, source, offer_id, round_id, status, meet_place, meet_time, no_show_user_id) "
-                "VALUES (:id, :source, :offer_id, :round_id, :status, :meet_place, :meet_time, NULL)"
+                "INSERT INTO trades "
+                "(id, loop_id, copy_id, giver_id, receiver_id, handoff_code, "
+                "code_attempts, status, completed_at) "
+                "VALUES (:id, :loop_id, :copy_id, :giver_id, :receiver_id, "
+                ":handoff_code, 0, 'pending', NULL)"
             ),
             {
-                "id": loop.id,
-                "source": loop.source,
-                "offer_id": loop.offer_id,
-                "round_id": loop.round_id,
-                "status": loop.status,
-                "meet_place": loop.meet_place,
-                "meet_time": loop.meet_time,
+                "id": str(uuid4()),
+                "loop_id": loop.id,
+                "copy_id": trade["copy_id"],
+                "giver_id": trade["giver_id"],
+                "receiver_id": trade["receiver_id"],
+                "handoff_code": f"{randbelow(10_000):04d}",
             },
         )
 
-        for trade in normalized_trades:
-            result = connection.execute(
-                text(
-                    "UPDATE copies SET status = 'reserved' "
-                    "WHERE id = :copy_id AND status = 'available'"
-                ),
-                {"copy_id": trade["copy_id"]},
-            )
-            if result.rowcount != 1:
-                raise ValueError(f"Copy is no longer available: {trade['copy_id']}")
-
-            connection.execute(
-                text(
-                    "INSERT INTO trades "
-                    "(id, loop_id, copy_id, giver_id, receiver_id, handoff_code, "
-                    "code_attempts, status, completed_at) "
-                    "VALUES (:id, :loop_id, :copy_id, :giver_id, :receiver_id, "
-                    ":handoff_code, 0, 'pending', NULL)"
-                ),
-                {
-                    "id": str(uuid4()),
-                    "loop_id": loop.id,
-                    "copy_id": trade["copy_id"],
-                    "giver_id": trade["giver_id"],
-                    "receiver_id": trade["receiver_id"],
-                    "handoff_code": f"{randbelow(10_000):04d}",
-                },
-            )
-
     return loop
+
+
+def create_loop(
+    trades: Sequence[Any], source: Any, meet_place: str | None, meet_time: str | None
+) -> Loop:
+    """Create a loop and reserve all its copies as one atomic database change."""
+    with transaction() as connection:
+        return _create_loop_in_connection(connection, trades, source, meet_place, meet_time)
