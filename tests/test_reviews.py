@@ -6,11 +6,18 @@ fixed so the tests give the same result on any day.
 """
 
 from copy import deepcopy
+from datetime import datetime, timezone
+from pathlib import Path
 
-from bookloop.models import Review, Trade
+import pytest
+from sqlalchemy import text
+from streamlit.testing.v1 import AppTest
+
+from bookloop.models import Profile, Review, Trade
 from bookloop.rules.reviews import (
     can_hide_review,
     can_reply,
+    can_resolve_flag,
     can_review,
     check_review_details,
     is_misdescribed,
@@ -18,6 +25,10 @@ from bookloop.rules.reviews import (
     needs_comment,
     review_visible_from,
 )
+from bookloop.services.notify import get_notifications
+from bookloop.storage import db, reviews_repo
+from seed import base as seed_base
+from seed import reviews as seed_reviews
 
 
 COMPLETED = "2026-11-10T14:00:00Z"
@@ -256,3 +267,326 @@ def test_hiding_needs_a_reason_and_only_happens_once(make_user):
 
     assert can_hide_review(moderator, visible, " ").reason == "Give a reason for hiding the review."
     assert can_hide_review(moderator, hidden, "Abusive").reason == "This review is already hidden."
+
+
+def test_only_moderators_can_resolve_flags(make_user):
+    assert can_resolve_flag(make_user(name="Mia", role="moderator")).allowed is True
+    assert can_resolve_flag(make_user(name="Ana")).reason == "Only moderators can resolve flags."
+
+
+# === Saving reviews, flags and moderator actions ============================
+
+
+def now_text() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def count_rows(table: str) -> int:
+    with db.transaction() as connection:
+        return connection.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one()
+
+
+@pytest.fixture
+def swap(make_user, make_book, make_copy, make_loop):
+    """A direct swap that just completed: Ben gave Ana a book listed as like new,
+    and Ana gave Ben a book listed as good. Returns (ana, ben, ben_to_ana, ana_to_ben)."""
+    ana, ben = make_user(name="Ana"), make_user(name="Ben")
+    bens_book = make_copy(owner=ana, book=make_book(title="Microeconomics"), condition=4)
+    anas_book = make_copy(owner=ben, book=make_book(title="Statistics"), condition=3)
+    loop = make_loop(status="completed")
+    trades = []
+    for trade_id, copy, giver, receiver in [
+        ("trade-ben-ana", bens_book, ben, ana),
+        ("trade-ana-ben", anas_book, ana, ben),
+    ]:
+        with db.transaction() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO trades (id, loop_id, copy_id, giver_id, receiver_id, handoff_code, "
+                    "status, completed_at) VALUES (:id, :loop, :copy, :giver, :receiver, '1234', "
+                    "'completed', :done)"
+                ),
+                {"id": trade_id, "loop": loop.id, "copy": copy.id, "giver": giver.id,
+                 "receiver": receiver.id, "done": now_text()},
+            )
+        trades.append(reviews_repo.get_trade(trade_id))
+    return ana, ben, trades[0], trades[1]
+
+
+def test_books_waiting_for_review_are_the_ones_the_user_received(swap):
+    ana, ben, ben_to_ana, _ = swap
+
+    (waiting,) = reviews_repo.trades_to_review(ana.id)
+
+    assert (waiting.trade.id, waiting.title, waiting.giver_name) == (ben_to_ana.id, "Microeconomics", "Ben")
+    assert waiting.listed_condition == 4
+
+
+def test_a_reviewed_trade_is_no_longer_waiting(swap):
+    ana, _, ben_to_ana, _ = swap
+
+    reviews_repo.save_review(ben_to_ana, 5, True, 4, None)
+
+    assert reviews_repo.trades_to_review(ana.id) == []
+    assert reviews_repo.has_review(ben_to_ana.id) is True
+
+
+def test_a_new_review_stays_blind_until_the_other_side_reviews(swap):
+    ana, ben, ben_to_ana, _ = swap
+
+    saved = reviews_repo.save_review(ben_to_ana, 1, False, 3, "Coffee stains everywhere.")
+
+    assert is_visible(saved.review.visible_from) is False
+    assert reviews_repo.reviews_about(ben.id) == []
+    assert reviews_repo.swapper_score(ben.id).score == 4.0  # not counted yet
+
+
+def test_when_everyone_has_reviewed_both_reviews_become_visible(swap):
+    ana, ben, ben_to_ana, ana_to_ben = swap
+    reviews_repo.save_review(ben_to_ana, 4, True, 4, None)
+
+    saved = reviews_repo.save_review(ana_to_ben, 5, True, 3, None)
+
+    assert is_visible(saved.review.visible_from) is True
+    assert [view.reviewer_name for view in reviews_repo.reviews_about(ben.id)] == ["Ana"]
+    assert [view.reviewer_name for view in reviews_repo.reviews_about(ana.id)] == ["Ben"]
+    assert reviews_repo.swapper_score(ben.id).score == 4.0  # (12 + 4) / 4
+
+
+def test_a_misdescribed_book_flags_the_swap_and_tells_moderators(swap, make_user):
+    ana, ben, ben_to_ana, _ = swap
+    moderator = make_user(name="Mia", role="moderator")
+
+    saved = reviews_repo.save_review(ben_to_ana, 2, False, 2, "Highlighted throughout.")
+
+    assert saved.flagged is True  # listed like new (4), arrived fair (2)
+    (flag,) = reviews_repo.flagged_swaps()
+    assert (flag.trade_id, flag.giver_name, flag.receiver_name) == (ben_to_ana.id, "Ben", "Ana")
+    assert "flagged" in get_notifications(moderator.id)[0].text
+
+
+def test_one_level_worse_is_not_flagged(swap):
+    _, _, ben_to_ana, _ = swap
+
+    saved = reviews_repo.save_review(ben_to_ana, 3, False, 3, None)
+
+    assert saved.flagged is False
+    assert reviews_repo.flagged_swaps() == []
+
+
+def test_two_misdescribed_books_put_the_giver_under_review(swap, make_review):
+    ana, ben, ben_to_ana, _ = swap
+    make_review(reviewee=ben, stars=2, as_described=False, comment="Torn.")
+
+    saved = reviews_repo.save_review(ben_to_ana, 2, False, 2, "Highlighted throughout.")
+
+    assert saved.now_under_review is True
+    assert reviews_repo.get_profile(ben.id).status == "under_review"
+    assert reviews_repo.is_blocked(ben.id) is True
+    assert "under review" in get_notifications(ben.id)[0].text
+
+
+def test_a_good_review_does_not_change_the_givers_status(swap):
+    _, ben, ben_to_ana, _ = swap
+
+    saved = reviews_repo.save_review(ben_to_ana, 5, True, 4, None)
+
+    assert saved.now_under_review is False
+    assert reviews_repo.get_profile(ben.id).status == "active"
+
+
+def test_a_suspended_user_stays_suspended_after_a_bad_review(swap, make_review, make_user):
+    _, ben, ben_to_ana, _ = swap
+    moderator = make_user(name="Mia", role="moderator")
+    make_review(reviewee=ben, stars=1, as_described=False, comment="Torn.")
+    reviews_repo.set_user_status(moderator.id, ben.id, "suspended")
+
+    reviews_repo.save_review(ben_to_ana, 1, False, 1, "Pages missing.")
+
+    assert reviews_repo.get_profile(ben.id).status == "suspended"
+
+
+def test_the_database_refuses_a_second_review_of_the_same_trade(swap):
+    _, _, ben_to_ana, _ = swap
+    reviews_repo.save_review(ben_to_ana, 5, True, 4, None)
+
+    with pytest.raises(Exception):
+        reviews_repo.save_review(ben_to_ana, 1, False, 1, "Changed my mind.")
+
+    assert count_rows("reviews") == 1
+
+
+def test_a_reply_is_saved_once(make_review):
+    review = make_review(stars=2, comment="Late.")
+
+    reviews_repo.save_reply(review.id, "Sorry, the bus broke down.")
+    with pytest.raises(ValueError):
+        reviews_repo.save_reply(review.id, "Second reply")
+
+    assert reviews_repo.get_review(review.id).reply == "Sorry, the bus broke down."
+
+
+def test_hiding_a_review_saves_the_reason_logs_it_and_stops_it_counting(make_user, make_review):
+    moderator = make_user(name="Mia", role="moderator")
+    ben = make_user(name="Ben")
+    review = make_review(reviewee=ben, stars=1, comment="Rude words")
+
+    reviews_repo.hide_review(moderator.id, review.id, "Insulting language")
+
+    hidden = reviews_repo.get_review(review.id)
+    assert (hidden.hidden_by_moderator, hidden.hidden_reason) == (True, "Insulting language")
+    assert reviews_repo.swapper_score(ben.id).score == 4.0
+    (entry,) = reviews_repo.audit_entries()
+    assert (entry.actor_name, entry.entry.action, entry.entry.target_id) == ("Mia", "hid review", review.id)
+
+
+def test_hiding_a_review_twice_fails_and_logs_nothing_more(make_user, make_review):
+    moderator = make_user(name="Mia", role="moderator")
+    review = make_review(stars=1, comment="Rude words")
+    reviews_repo.hide_review(moderator.id, review.id, "Insulting language")
+
+    with pytest.raises(ValueError):
+        reviews_repo.hide_review(moderator.id, review.id, "Again")
+
+    assert count_rows("audit_log") == 1
+    assert reviews_repo.get_review(review.id).hidden_reason == "Insulting language"
+
+
+def test_resolving_a_flag_removes_it_from_the_list_and_logs_it(swap, make_user):
+    _, _, ben_to_ana, _ = swap
+    moderator = make_user(name="Mia", role="moderator")
+    reviews_repo.save_review(ben_to_ana, 2, False, 1, "Pages missing.")
+
+    reviews_repo.resolve_flag(moderator.id, ben_to_ana.id)
+
+    assert reviews_repo.flagged_swaps() == []
+    actions = [entry.entry.action for entry in reviews_repo.audit_entries()]
+    assert actions == ["resolved flag", "flagged as misdescribed"]
+
+
+def test_clearing_and_suspending_users_is_logged_and_notified(make_user):
+    moderator = make_user(name="Mia", role="moderator")
+    dina = make_user(name="Dina", status="under_review")
+    assert [person.display_name for person in reviews_repo.users_needing_attention()] == ["Dina"]
+
+    reviews_repo.set_user_status(moderator.id, dina.id, "active")
+
+    assert reviews_repo.get_profile(dina.id).status == "active"
+    assert reviews_repo.users_needing_attention() == []
+    assert reviews_repo.audit_entries()[0].entry.action == "cleared user"
+    assert "cleared" in get_notifications(dina.id)[0].text
+
+
+def test_swap_history_shows_what_the_user_gave_and_received(swap):
+    ana, _, _, _ = swap
+
+    history = {(item.title, item.gave, item.other_name) for item in reviews_repo.swap_history(ana.id)}
+
+    assert history == {("Microeconomics", False, "Ben"), ("Statistics", True, "Ben")}
+
+
+# === The demo reviews =======================================================
+
+
+def load_demo_reviews(database) -> None:
+    with database.begin() as connection:
+        seed_base.seed(connection)
+        seed_reviews.seed(connection)
+
+
+def test_the_demo_data_makes_carla_trusted_and_dina_under_review(database):
+    load_demo_reviews(database)
+
+    assert reviews_repo.swapper_score("user-carla") == (4.62, 100.0, "Trusted")
+    assert reviews_repo.swapper_score("user-dina") == (2.83, 33.33, "Under review")
+    assert reviews_repo.get_profile("user-dina").status == "under_review"
+    assert {flag.receiver_name for flag in reviews_repo.flagged_swaps()} == {"Eli", "Farah"}
+
+
+def test_the_demo_swaps_are_too_old_to_review(database):
+    # Carla received a book back in each of her 5 October swaps, but the
+    # 14 days have passed, so none of them can be reviewed now.
+    load_demo_reviews(database)
+    carla = seed_profile("user-carla", "Carla")
+
+    received = reviews_repo.trades_to_review(carla.id)
+
+    assert len(received) == 5
+    assert not any(can_review(carla, item.trade, False).allowed for item in received)
+
+
+# === The Profile and Moderator pages ========================================
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def seed_profile(id: str, name: str, role: str = "student", status: str = "active") -> Profile:
+    return Profile(id=id, display_name=name, role=role, status=status, created_at=seed_base.CREATED_AT)
+
+
+def open_page(page_file: str, user: Profile) -> AppTest:
+    """Open a page logged in as `user` (laptop mode, test database)."""
+    page = AppTest.from_file(str(ROOT / "pages" / page_file), default_timeout=30)
+    page.session_state["current_user"] = user
+    page.session_state["_auth_mode"] = "laptop"
+    return page.run()
+
+
+def test_profile_page_shows_score_badge_and_reviews(database):
+    load_demo_reviews(database)
+
+    page = open_page("6_Profile.py", seed_profile("user-carla", "Carla"))
+
+    assert not page.exception
+    metrics = {metric.label: metric.value for metric in page.metric}
+    assert metrics == {"Swapper Score": "4.62", "Accuracy": "100%", "Badge": "Trusted"}
+    assert "No swaps waiting for your review." in [caption.value for caption in page.caption]
+
+
+def test_profile_page_review_form_saves_a_review(swap):
+    ana, ben, ben_to_ana, _ = swap
+
+    page = open_page("6_Profile.py", ana)
+    page.select_slider[0].set_value(2)
+    page.radio[0].set_value("No")
+    page.selectbox[1].set_value(1)
+    page.text_area[0].input("Torn cover and missing pages.")
+    page = page.button[0].click().run()
+
+    assert not page.exception
+    assert page.success[0].value.startswith("Thanks! Your review of Ben is saved.")
+    assert "a moderator will check the swap" in page.success[0].value
+    assert reviews_repo.has_review(ben_to_ana.id) is True
+
+
+def test_profile_page_refuses_a_low_rating_without_a_comment(swap):
+    ana, _, ben_to_ana, _ = swap
+
+    page = open_page("6_Profile.py", ana)
+    page.select_slider[0].set_value(1)
+    page = page.button[0].click().run()
+
+    assert page.error[0].value.startswith("Please add a comment")
+    assert reviews_repo.has_review(ben_to_ana.id) is False
+
+
+def test_moderator_page_shows_flags_and_can_clear_a_user(database):
+    load_demo_reviews(database)
+    moderator = seed_profile("user-moderator", "Morgan", role="moderator")
+
+    page = open_page("7_Moderator.py", moderator)
+    assert not page.exception
+    assert [b.label for b in page.button].count("Mark as resolved") == 2
+    page = next(b for b in page.button if b.label == "Clear").click().run()
+
+    assert page.success[0].value == "Dina has been cleared: they can swap again."
+    assert reviews_repo.get_profile("user-dina").status == "active"
+
+
+def test_students_cannot_open_the_moderator_page(database):
+    load_demo_reviews(database)
+
+    page = open_page("7_Moderator.py", seed_profile("user-ana", "Ana"))
+
+    assert page.error[0].value == "You don't have permission to view this page."
