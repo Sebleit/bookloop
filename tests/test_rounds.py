@@ -1,13 +1,23 @@
-"""Tests for the swap round rules in bookloop/rules/rounds.py.
+"""Tests for swap rounds: the rules, saving to the database, the demo round and the page.
 
-Users and copies come from the shared factories in conftest.py. Rounds and
-entries are only needed in memory here, so the helpers below build them.
-All times are fixed so the tests give the same result on any day.
+Users, books and copies come from the shared factories in conftest.py. For the
+rules, rounds and entries are only needed in memory, so the helpers below
+build them. All times are fixed so the tests give the same result on any day.
 """
 
 from copy import deepcopy
+from pathlib import Path
 
-from bookloop.models import Round
+import pytest
+from sqlalchemy import text
+from streamlit.testing.v1 import AppTest
+
+from bookloop.models import Profile, Round
+from bookloop.services.notify import get_notifications
+from bookloop.storage import db, rounds_repo
+from bookloop.storage.copies_repo import get_copy
+from seed import base as seed_base
+from seed import rounds as seed_rounds
 from bookloop.rules.rounds import (
     RoundEntryInfo,
     can_advance,
@@ -352,3 +362,291 @@ def test_minimum_score_of_exactly_0_and_5_is_allowed(make_user):
 
     assert can_set_min_score(ana, a_round("wants"), mine, 0, now=DURING_WANTS).allowed is True
     assert can_set_min_score(ana, a_round("wants"), mine, 5, now=DURING_WANTS).allowed is True
+
+
+# === Saving rounds to the database ==========================================
+
+
+def saved_round(make_user, phase: str = "entries") -> Round:
+    """Save a round created by a moderator, then put it in the given phase."""
+    moderator = make_user(name="Mia", role="moderator")
+    round = rounds_repo.create_round(
+        "Spring swap", ENTRIES_CLOSE, WANTS_CLOSE, "Library", MEETING, moderator.id
+    )
+    if phase != "entries":
+        set_phase(round.id, phase)
+    return rounds_repo.get_round(round.id)
+
+
+def set_phase(round_id: str, phase: str) -> None:
+    with db.transaction() as connection:
+        connection.execute(
+            text("UPDATE rounds SET phase = :phase WHERE id = :id"), {"phase": phase, "id": round_id}
+        )
+
+
+def count_rows(table: str) -> int:
+    with db.transaction() as connection:
+        return connection.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one()
+
+
+@pytest.fixture
+def three_way_round(make_user, make_book, make_copy):
+    """A round in the wants phase: Ana, Ben and Carla form a loop; Dina gets no match."""
+    round = saved_round(make_user, phase="entries")
+    people, entries = {}, {}
+    for name, title in [("Ana", "Statistics"), ("Ben", "Micro"), ("Carla", "Finance"), ("Dina", "History")]:
+        people[name] = make_user(name=name)
+        copy = make_copy(owner=people[name], book=make_book(title=title))
+        entries[name] = rounds_repo.enter_copy(round.id, copy.id)
+    set_phase(round.id, "wants")
+    rounds_repo.save_wants(entries["Ana"].id, [entries["Ben"].id], 0)
+    rounds_repo.save_wants(entries["Ben"].id, [entries["Carla"].id], 0)
+    rounds_repo.save_wants(entries["Carla"].id, [entries["Ana"].id], 0)
+    rounds_repo.save_wants(entries["Dina"].id, [entries["Ana"].id], 0)
+    return round, people, entries
+
+
+def test_create_round_saves_it_in_the_entries_phase(make_user):
+    round = saved_round(make_user)
+
+    assert round.phase == "entries"
+    assert round.name == "Spring swap"
+    assert [saved.id for saved in rounds_repo.list_rounds()] == [round.id]
+
+
+def test_entering_a_book_puts_it_in_the_round(make_user, make_book, make_copy):
+    round = saved_round(make_user)
+    ana = make_user(name="Ana")
+    copy = make_copy(owner=ana, book=make_book(title="Statistics"))
+
+    entry = rounds_repo.enter_copy(round.id, copy.id)
+
+    assert entry.owner_id == ana.id
+    assert get_copy(copy.id).status == "in_round"
+    (details,) = rounds_repo.list_entries(round.id)
+    assert (details.title, details.owner_name) == ("Statistics", "Ana")
+
+
+def test_entering_an_unavailable_book_fails_and_changes_nothing(make_user, make_copy):
+    round = saved_round(make_user)
+    copy = make_copy(status="reserved")
+
+    with pytest.raises(ValueError):
+        rounds_repo.enter_copy(round.id, copy.id)
+
+    assert get_copy(copy.id).status == "reserved"
+    assert rounds_repo.list_entries(round.id) == []
+
+
+def test_the_same_book_cannot_be_entered_twice(make_user, make_copy):
+    round = saved_round(make_user)
+    copy = make_copy()
+    rounds_repo.enter_copy(round.id, copy.id)
+
+    with pytest.raises(ValueError):
+        rounds_repo.enter_copy(round.id, copy.id)
+
+    assert len(rounds_repo.list_entries(round.id)) == 1
+
+
+def test_available_copies_lists_only_the_students_available_books(make_user, make_book, make_copy):
+    ana = make_user(name="Ana")
+    make_copy(owner=ana, book=make_book(title="Statistics"))
+    make_copy(owner=ana, status="reserved")
+    make_copy(owner=make_user(name="Ben"))
+
+    assert [choice.title for choice in rounds_repo.available_copies(ana.id)] == ["Statistics"]
+
+
+def test_saving_wants_replaces_the_old_ones_and_sets_the_minimum_score(three_way_round):
+    round, _, entries = three_way_round
+
+    rounds_repo.save_wants(entries["Ana"].id, [entries["Carla"].id, entries["Dina"].id], 4.5)
+
+    anas_wants = [w.wanted_entry_id for w in rounds_repo.get_wants(round.id) if w.entry_id == entries["Ana"].id]
+    assert sorted(anas_wants) == sorted([entries["Carla"].id, entries["Dina"].id])
+    anas_entry = next(e for e in rounds_repo.list_entries(round.id) if e.info.id == entries["Ana"].id)
+    assert anas_entry.info.min_partner_score == 4.5
+
+
+def test_advance_moves_entries_to_wants_and_matched_to_closed(make_user):
+    round = saved_round(make_user)
+    assert rounds_repo.advance_round(round.id).phase == "wants"
+
+    set_phase(round.id, "matched")
+    assert rounds_repo.advance_round(round.id).phase == "closed"
+
+
+def test_advance_refuses_the_wants_phase_and_leaves_the_round_unchanged(make_user):
+    round = saved_round(make_user, phase="wants")
+
+    with pytest.raises(ValueError):
+        rounds_repo.advance_round(round.id)
+
+    assert rounds_repo.get_round(round.id).phase == "wants"
+
+
+def test_running_a_round_creates_the_loop_and_returns_unmatched_books(three_way_round):
+    round, people, entries = three_way_round
+
+    result = rounds_repo.run_round(round.id)
+
+    assert len(result.loops) == 1
+    assert (result.books_swapped, result.books_returned) == (3, 1)
+    loop = result.loops[0]
+    assert (loop.source, loop.round_id, loop.meet_place) == ("round", round.id, "Library")
+    assert count_rows("trades") == 3
+    assert rounds_repo.get_round(round.id).phase == "matched"
+    for name in ["Ana", "Ben", "Carla"]:
+        assert get_copy(entries[name].copy_id).status == "reserved"
+    assert get_copy(entries["Dina"].copy_id).status == "available"
+
+
+def test_running_a_round_notifies_everyone(three_way_round):
+    round, people, _ = three_way_round
+
+    rounds_repo.run_round(round.id)
+
+    (ana_message,) = get_notifications(people["Ana"].id)
+    assert "give “Statistics” to Carla" in ana_message.text
+    assert "receive “Micro” from Ben" in ana_message.text
+    (dina_message,) = get_notifications(people["Dina"].id)
+    assert "no match for “History”" in dina_message.text
+
+
+def test_a_round_cannot_be_run_twice_and_nothing_changes(three_way_round):
+    round, people, _ = three_way_round
+    rounds_repo.run_round(round.id)
+    before = (count_rows("loops"), count_rows("trades"), count_rows("notifications"))
+
+    with pytest.raises(ValueError):
+        rounds_repo.run_round(round.id)
+
+    assert (count_rows("loops"), count_rows("trades"), count_rows("notifications")) == before
+
+
+def test_running_a_round_with_no_entries_finds_nothing(make_user):
+    round = saved_round(make_user, phase="wants")
+
+    result = rounds_repo.run_round(round.id)
+
+    assert result.loops == []
+    assert rounds_repo.get_round(round.id).phase == "matched"
+
+
+def test_minimum_score_uses_the_real_swapper_score(three_way_round, make_review):
+    # Ben has three 1-star reviews: (12 + 3) / (3 + 3) = 2.5. Ana only accepts 3.0+.
+    round, people, entries = three_way_round
+    for _ in range(3):
+        make_review(reviewee=people["Ben"], stars=1, comment="Torn cover.")
+    rounds_repo.save_wants(entries["Ana"].id, [entries["Ben"].id], 3.0)
+
+    result = rounds_repo.run_round(round.id)
+
+    assert result.loops == []
+    assert get_copy(entries["Ana"].copy_id).status == "available"
+
+
+def test_if_saving_a_loop_fails_the_round_goes_back_to_wants(three_way_round, monkeypatch):
+    round, _, entries = three_way_round
+
+    def broken_create_loop(*args, **kwargs):
+        raise RuntimeError("database hiccup")
+
+    monkeypatch.setattr(rounds_repo, "create_loop", broken_create_loop)
+    with pytest.raises(RuntimeError):
+        rounds_repo.run_round(round.id)
+
+    assert rounds_repo.get_round(round.id).phase == "wants"
+    assert all(get_copy(entry.copy_id).status == "in_round" for entry in entries.values())
+
+
+def test_each_person_sees_only_their_own_trades(three_way_round):
+    round, people, _ = three_way_round
+    rounds_repo.run_round(round.id)
+
+    anas = rounds_repo.my_trades(round.id, people["Ana"].id)
+
+    assert {(t.title, t.giver_name, t.receiver_name) for t in anas} == {
+        ("Statistics", "Ana", "Carla"),
+        ("Micro", "Ben", "Ana"),
+    }
+    assert rounds_repo.my_trades(round.id, people["Dina"].id) == []
+
+
+# === The demo round =========================================================
+
+
+def load_demo_data(database) -> None:
+    with database.begin() as connection:
+        seed_base.seed(connection)
+        seed_rounds.seed(connection)
+
+
+def seed_profile(id: str, name: str, role: str = "student") -> Profile:
+    """One of the demo users from seed/base.py."""
+    return Profile(id=id, display_name=name, role=role, status="active", created_at=seed_base.CREATED_AT)
+
+
+def test_the_demo_round_produces_a_three_way_loop(database):
+    load_demo_data(database)
+
+    result = rounds_repo.run_round("round-demo")
+
+    (loop,) = result.loops
+    eli = {(t.title, t.giver_name, t.receiver_name) for t in rounds_repo.my_trades("round-demo", "user-eli")}
+    assert eli == {
+        ("Calculus: Early Transcendentals", "Eli", "Ana"),
+        ("Principles of Economics", "Farah", "Eli"),
+    }
+    assert rounds_repo.my_trades("round-demo", "user-ben") == []
+    assert result.books_returned == 1
+
+
+# === The Swap Round page ====================================================
+
+
+PAGE = Path(__file__).resolve().parents[1] / "pages" / "4_Swap_Round.py"
+
+
+def open_page(user) -> AppTest:
+    """Open the Swap Round page logged in as `user` (laptop mode, test database)."""
+    page = AppTest.from_file(str(PAGE), default_timeout=30)
+    page.session_state["current_user"] = user
+    page.session_state["_auth_mode"] = "laptop"
+    return page.run()
+
+
+def test_page_shows_a_sensible_message_when_there_are_no_rounds(make_user):
+    page = open_page(make_user(name="Ana"))
+
+    assert not page.exception
+    assert page.info[0].value == "No swap rounds yet. A moderator will open one soon."
+
+
+def test_page_lets_a_student_choose_wants_in_the_demo_round(database):
+    load_demo_data(database)
+    ana = seed_profile("user-ana", "Ana")
+
+    page = open_page(ana)
+
+    assert not page.exception
+    (wants,) = page.multiselect
+    assert len(wants.options) == 3  # the three books Ana doesn't own
+    assert page.multiselect[0].value == ["entry-eli"]  # what the demo already ticked
+
+
+def test_page_lets_a_moderator_run_the_demo_round_and_shows_results(database):
+    load_demo_data(database)
+    moderator = seed_profile("user-moderator", "Morgan", role="moderator")
+
+    page = open_page(moderator)
+    page = next(button for button in page.button if button.label == "Run round").click().run()
+
+    assert not page.exception
+    assert page.success[0].value.startswith("Found 1 loop: 3 books will change hands")
+    ana_page = open_page(seed_profile("user-ana", "Ana"))
+    assert ana_page.success[0].value == "You're in a swap loop!"
+    ben_page = open_page(seed_profile("user-ben", "Ben"))
+    assert "back on your shelf" in ben_page.info[0].value
