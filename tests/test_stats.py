@@ -1,5 +1,6 @@
 from sqlalchemy import text
 
+from seed import base, swaps
 from bookloop.storage.stats_repo import community_stats, stats_csv
 
 
@@ -58,3 +59,18 @@ def test_stats_csv_quotes_titles_with_commas():
     )
 
     assert '"A, Book",3' in csv_text
+
+
+def test_demo_swaps_seed_adds_completed_and_pending_loops(database):
+    with database.begin() as connection:
+        base.seed(connection)
+        swaps.seed(connection)
+        loop_statuses = connection.execute(
+            text("SELECT status FROM loops ORDER BY id")
+        ).scalars().all()
+        trade_statuses = connection.execute(
+            text("SELECT status FROM trades ORDER BY id")
+        ).scalars().all()
+
+    assert loop_statuses == ["completed", "scheduled"]
+    assert trade_statuses == ["completed", "completed", "pending", "pending"]
