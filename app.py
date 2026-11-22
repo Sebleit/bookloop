@@ -6,47 +6,6 @@ from bookloop.models import Profile
 from bookloop.services.notify import get_notifications
 
 
-def _placeholder_page(title: str, owner: int, moderator_only: bool = False) -> None:
-    if moderator_only:
-        auth.require_role("moderator")
-    else:
-        auth.current_user()
-    st.title(title)
-    st.write(f"This page is being built by Person {owner}.")
-
-
-def _browse() -> None:
-    _placeholder_page("Browse", 1)
-
-
-def _my_shelf() -> None:
-    _placeholder_page("My Shelf", 1)
-
-
-def _offers() -> None:
-    _placeholder_page("Offers", 2)
-
-
-def _swap_round() -> None:
-    _placeholder_page("Swap Round", 3)
-
-
-def _my_swaps() -> None:
-    _placeholder_page("My Swaps", 2)
-
-
-def _profile() -> None:
-    _placeholder_page("Profile", 4)
-
-
-def _moderator() -> None:
-    _placeholder_page("Moderator", 4, moderator_only=True)
-
-
-def _stats() -> None:
-    _placeholder_page("Stats", 2, moderator_only=True)
-
-
 def _show_sidebar(user: Profile) -> None:
     st.sidebar.subheader("BookLoop")
     st.sidebar.write(f"Logged in as **{user.display_name}**")
@@ -76,19 +35,20 @@ def main() -> None:
     user = auth.current_user()
     _show_sidebar(user)
 
+    # Each menu entry runs one file in pages/. Each page checks the login itself.
     pages = [
-        st.Page(_browse, title="Browse", default=True),
-        st.Page(_my_shelf, title="My Shelf"),
-        st.Page(_offers, title="Offers"),
-        st.Page(_swap_round, title="Swap Round"),
-        st.Page(_my_swaps, title="My Swaps"),
-        st.Page(_profile, title="Profile"),
+        st.Page("pages/1_Browse.py", title="Browse", default=True),
+        st.Page("pages/2_My_Shelf.py", title="My Shelf"),
+        st.Page("pages/3_Offers.py", title="Offers"),
+        st.Page("pages/4_Swap_Round.py", title="Swap Round"),
+        st.Page("pages/5_My_Swaps.py", title="My Swaps"),
+        st.Page("pages/6_Profile.py", title="Profile"),
     ]
     if user.role == "moderator":
         pages.extend(
             [
-                st.Page(_moderator, title="Moderator"),
-                st.Page(_stats, title="Stats"),
+                st.Page("pages/7_Moderator.py", title="Moderator"),
+                st.Page("pages/8_Stats.py", title="Stats"),
             ]
         )
 
