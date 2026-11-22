@@ -159,3 +159,10 @@ def can_hide_review(user: Profile, review: Review, reason: str) -> Decision:
     if not (reason or "").strip():
         return Decision.no("Give a reason for hiding the review.")
     return Decision.yes()
+
+
+def can_resolve_flag(user: Profile) -> Decision:
+    """Check whether this user can mark a flagged swap as dealt with."""
+    if not is_moderator(user):
+        return Decision.no("Only moderators can resolve flags.")
+    return Decision.yes()

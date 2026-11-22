@@ -20,11 +20,18 @@ Badges:
   moderator clears them.
 
 The score is calculated from the reviews every time it's shown, never
-stored, so it can never be out of date. These functions only do the maths:
-storage gives them the reviews that count.
+stored, so it can never be out of date. The score functions only do the
+maths: storage gives them the reviews that count.
+
+At the end, can_change_status() decides when a moderator can clear or
+suspend a user.
 """
 
 from collections.abc import Sequence
+
+from bookloop.models import Profile
+from bookloop.rules.decision import Decision
+from bookloop.rules.permissions import is_moderator
 
 
 STARTING_REVIEWS = 3
@@ -81,3 +88,24 @@ def badge(
     if review_count < NEW_USER_REVIEWS:
         return "New"
     return None
+
+
+# --- Account status --------------------------------------------------------
+
+
+STATUS_NAMES = {"active": "cleared", "suspended": "suspended"}
+
+
+def can_change_status(moderator: Profile, user: Profile, new_status: str) -> Decision:
+    """Check whether a moderator can clear a user (back to active) or suspend them."""
+    if not is_moderator(moderator):
+        return Decision.no("Only moderators can clear or suspend users.")
+    if new_status not in STATUS_NAMES:
+        return Decision.no("A user can only be cleared or suspended.")
+    if user.id == moderator.id:
+        return Decision.no("You can't change your own status.")
+    if is_moderator(user):
+        return Decision.no("Moderators can't clear or suspend other moderators.")
+    if user.status == new_status:
+        return Decision.no(f"{user.display_name} is already {STATUS_NAMES[new_status]}.")
+    return Decision.yes()

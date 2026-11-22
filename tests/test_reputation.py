@@ -7,6 +7,7 @@ from pytest import approx
 from bookloop.rules.reputation import (
     accuracy,
     badge,
+    can_change_status,
     misdescribed_recently,
     score,
     should_be_under_review,
@@ -138,3 +139,44 @@ def test_a_user_with_only_blind_reviews_still_looks_new(make_user, make_review):
         make_review(reviewee=ben, stars=1, comment="Bad.", visible_from=FAR_FUTURE)
 
     assert swapper_score(ben.id) == (4.0, 0.0, "New")
+
+
+# --- Clearing and suspending users -----------------------------------------
+
+
+def test_a_moderator_can_clear_or_suspend_a_student(make_user):
+    moderator = make_user(name="Mia", role="moderator")
+    dina = make_user(name="Dina", status="under_review")
+
+    assert can_change_status(moderator, dina, "active").allowed is True
+    assert can_change_status(moderator, dina, "suspended").allowed is True
+
+
+def test_a_student_cannot_change_anyones_status(make_user):
+    ana = make_user(name="Ana")
+    dina = make_user(name="Dina", status="under_review")
+
+    decision = can_change_status(ana, dina, "active")
+
+    assert decision.reason == "Only moderators can clear or suspend users."
+    assert dina.status == "under_review"
+
+
+def test_moderators_cannot_change_their_own_or_another_moderators_status(make_user):
+    mia = make_user(name="Mia", role="moderator")
+    max_ = make_user(name="Max", role="moderator")
+
+    assert can_change_status(mia, mia, "suspended").reason == "You can't change your own status."
+    assert can_change_status(mia, max_, "suspended").reason == (
+        "Moderators can't clear or suspend other moderators."
+    )
+
+
+def test_status_must_actually_change_and_be_a_known_one(make_user):
+    moderator = make_user(name="Mia", role="moderator")
+    ana = make_user(name="Ana")
+
+    assert can_change_status(moderator, ana, "active").reason == "Ana is already cleared."
+    assert can_change_status(moderator, ana, "under_review").reason == (
+        "A user can only be cleared or suspended."
+    )
