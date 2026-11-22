@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from sqlalchemy import text
 
-from bookloop.models import Loop
+from bookloop.models import Copy, Loop, Offer
 from bookloop.storage.db import transaction
 
 
@@ -28,6 +28,106 @@ def _source_details(source: Any) -> tuple[str, str | None]:
     if source_type not in {"offer", "round"}:
         raise ValueError("Source must be 'offer' or 'round'.")
     return source_type, source_id
+
+
+def _copy_from_row(row: Mapping[str, Any]) -> Copy:
+    return Copy(
+        id=row["id"],
+        book_id=row["book_id"],
+        owner_id=row["owner_id"],
+        condition=row["condition"],
+        highlighting=row["highlighting"],
+        notes=row["notes"],
+        status=row["status"],
+        created_at=row["created_at"],
+    )
+
+
+def available_copies(
+    *, owner_id: str | None = None, exclude_owner_id: str | None = None
+) -> list[dict[str, Any]]:
+    """Return available copies with their book details for offer forms."""
+    if owner_id is not None and exclude_owner_id is not None:
+        raise ValueError("Use owner_id or exclude_owner_id, not both.")
+
+    owner_filter = "AND c.owner_id = :owner_id" if owner_id is not None else ""
+    exclude_filter = "AND c.owner_id != :exclude_owner_id" if exclude_owner_id is not None else ""
+    parameters = {
+        key: value
+        for key, value in {
+            "owner_id": owner_id,
+            "exclude_owner_id": exclude_owner_id,
+        }.items()
+        if value is not None
+    }
+    with transaction() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT c.id, c.book_id, c.owner_id, c.\"condition\", c.highlighting, "
+                "c.notes, c.status, c.created_at, b.title, b.authors "
+                "FROM copies c JOIN books b ON b.id = c.book_id "
+                "WHERE c.status = 'available' "
+                f"{owner_filter} {exclude_filter} "
+                "ORDER BY b.title, c.id"
+            ),
+            parameters,
+        ).mappings().all()
+
+    return [
+        {"copy": _copy_from_row(row), "title": row["title"], "authors": row["authors"]}
+        for row in rows
+    ]
+
+
+def pending_offer_count(proposer_id: str) -> int:
+    """Return the number of pending offers made by a user."""
+    with transaction() as connection:
+        return int(
+            connection.execute(
+                text(
+                    "SELECT COUNT(*) FROM offers "
+                    "WHERE proposer_id = :proposer_id AND status = 'pending'"
+                ),
+                {"proposer_id": proposer_id},
+            ).scalar_one()
+        )
+
+
+def create_offer(
+    proposer_id: str,
+    offered_copy_id: str,
+    requested_copy_id: str,
+    expires_at: str,
+) -> Offer:
+    """Save a pending offer after the page has checked its rule."""
+    offer = Offer(
+        id=str(uuid4()),
+        proposer_id=proposer_id,
+        offered_copy_id=offered_copy_id,
+        requested_copy_id=requested_copy_id,
+        status="pending",
+        created_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        expires_at=expires_at,
+    )
+    with transaction() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO offers "
+                "(id, proposer_id, offered_copy_id, requested_copy_id, status, created_at, expires_at) "
+                "VALUES (:id, :proposer_id, :offered_copy_id, :requested_copy_id, "
+                ":status, :created_at, :expires_at)"
+            ),
+            {
+                "id": offer.id,
+                "proposer_id": offer.proposer_id,
+                "offered_copy_id": offer.offered_copy_id,
+                "requested_copy_id": offer.requested_copy_id,
+                "status": offer.status,
+                "created_at": offer.created_at,
+                "expires_at": offer.expires_at,
+            },
+        )
+    return offer
 
 
 def create_loop(
