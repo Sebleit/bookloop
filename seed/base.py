@@ -129,3 +129,15 @@ def seed(connection: Connection) -> None:
         ),
         copies,
     )
+
+    # A few wishlists, so My Shelf and the Stats page's "most wanted" have data.
+    wishes = [
+        ("user-ana", "book-12"),  # University Physics
+        ("user-ben", "book-12"),
+        ("user-carla", "book-04"),  # A Mind for Numbers
+        ("user-eli", "book-14"),  # They Say / I Say
+    ]
+    connection.execute(
+        text("INSERT INTO wishlist (user_id, book_id, created_at) VALUES (:user, :book, :at)"),
+        [{"user": user, "book": book, "at": CREATED_AT} for user, book in wishes],
+    )
