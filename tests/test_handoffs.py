@@ -1,5 +1,8 @@
+from sqlalchemy import text
+
 from bookloop.models import Loop, Trade
 from bookloop.rules.handoffs import check_code, is_locked, no_show_outcome
+from bookloop.storage.swaps_repo import confirm_handoff, trades_for_user
 
 
 def trade(code_attempts: int = 0, status: str = "pending") -> Trade:
@@ -62,3 +65,120 @@ def test_stranger_cannot_report_no_show():
 
 def test_completed_loop_cannot_be_reported_as_no_show():
     assert no_show_outcome(loop(status="completed"), "alice", [trade()]).allowed is False
+
+
+def save_trade(database, current_trade: Trade, current_loop: Loop):
+    with database.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO loops "
+                "(id, source, offer_id, round_id, status, meet_place, meet_time, no_show_user_id) "
+                "VALUES (:id, 'offer', NULL, NULL, :status, 'Main library', "
+                "'2026-11-20T14:00:00Z', NULL)"
+            ),
+            {"id": current_loop.id, "status": current_loop.status},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO trades "
+                "(id, loop_id, copy_id, giver_id, receiver_id, handoff_code, "
+                "code_attempts, status, completed_at) "
+                "VALUES (:id, :loop_id, :copy_id, :giver_id, :receiver_id, "
+                ":handoff_code, :code_attempts, :status, :completed_at)"
+            ),
+            {
+                "id": current_trade.id,
+                "loop_id": current_trade.loop_id,
+                "copy_id": current_trade.copy_id,
+                "giver_id": current_trade.giver_id,
+                "receiver_id": current_trade.receiver_id,
+                "handoff_code": current_trade.handoff_code,
+                "code_attempts": current_trade.code_attempts,
+                "status": current_trade.status,
+                "completed_at": current_trade.completed_at,
+            },
+        )
+
+
+def test_confirm_handoff_completes_trade_and_changes_owner(database, make_user, make_copy):
+    alice = make_user(name="Alice")
+    bob = make_user(name="Bob")
+    current_copy = make_copy(owner=alice, status="reserved")
+    current_loop = loop()
+    current_trade = trade()
+    current_trade = Trade(
+        **{**current_trade.__dict__, "id": "trade-1", "loop_id": current_loop.id,
+           "copy_id": current_copy.id, "giver_id": alice.id, "receiver_id": bob.id}
+    )
+    save_trade(database, current_trade, current_loop)
+
+    decision = confirm_handoff(current_trade.id, alice.id, "1234")
+
+    assert decision.allowed is True
+    with database.begin() as connection:
+        owner = connection.execute(
+            text("SELECT owner_id FROM copies WHERE id = :copy_id"),
+            {"copy_id": current_copy.id},
+        ).scalar_one()
+        status = connection.execute(
+            text("SELECT status FROM trades WHERE id = :trade_id"),
+            {"trade_id": current_trade.id},
+        ).scalar_one()
+    assert owner == bob.id
+    assert status == "completed"
+
+
+def test_wrong_handoff_code_records_attempt_without_completing(database, make_user, make_copy):
+    alice = make_user(name="Alice")
+    bob = make_user(name="Bob")
+    current_copy = make_copy(owner=alice, status="reserved")
+    current_loop = loop()
+    current_trade = Trade(
+        **{**trade().__dict__, "loop_id": current_loop.id, "copy_id": current_copy.id,
+           "giver_id": alice.id, "receiver_id": bob.id}
+    )
+    save_trade(database, current_trade, current_loop)
+
+    decision = confirm_handoff(current_trade.id, alice.id, "9999")
+
+    assert decision.allowed is False
+    with database.begin() as connection:
+        attempts = connection.execute(
+            text("SELECT code_attempts FROM trades WHERE id = :trade_id"),
+            {"trade_id": current_trade.id},
+        ).scalar_one()
+    assert attempts == 1
+
+
+def test_locked_trade_rejects_fourth_code(database, make_user, make_copy):
+    alice = make_user(name="Alice")
+    bob = make_user(name="Bob")
+    current_copy = make_copy(owner=alice, status="reserved")
+    current_loop = loop()
+    current_trade = Trade(
+        **{**trade().__dict__, "loop_id": current_loop.id, "copy_id": current_copy.id,
+           "giver_id": alice.id, "receiver_id": bob.id, "code_attempts": 3}
+    )
+    save_trade(database, current_trade, current_loop)
+
+    decision = confirm_handoff(current_trade.id, alice.id, "1234")
+
+    assert decision.allowed is False
+    assert is_locked(current_trade) is True
+
+
+def test_trades_for_user_returns_pending_handoff(database, make_user, make_copy):
+    alice = make_user(name="Alice")
+    bob = make_user(name="Bob")
+    current_copy = make_copy(owner=alice, status="reserved")
+    current_loop = loop()
+    current_trade = Trade(
+        **{**trade().__dict__, "loop_id": current_loop.id, "copy_id": current_copy.id,
+           "giver_id": alice.id, "receiver_id": bob.id}
+    )
+    save_trade(database, current_trade, current_loop)
+
+    swaps = trades_for_user(alice.id)
+
+    assert len(swaps) == 1
+    assert swaps[0]["trade"].id == current_trade.id
