@@ -89,3 +89,6 @@ db/              the database tables (001_init.sql), Supabase security rules, an
 seed.py, seed/   demo data for the laptop database
 tests/           the tests
 ```
+## More
+
+- [ARCHITECTURE.md](ARCHITECTURE.md): how it's built, why, and its limits.
