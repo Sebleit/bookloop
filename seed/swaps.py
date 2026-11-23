@@ -11,8 +11,8 @@ CREATED_AT = "2026-11-14T00:00:00Z"
 PENDING_EXPIRES_AT = "2026-11-23T00:00:00Z"
 
 
-def _ben_offer_times() -> tuple[str, str]:
-    """Ben made his offer yesterday at 16:00; it expires 72 hours later."""
+def _offer_times() -> tuple[str, str]:
+    """Leonor made her offer yesterday at 16:00; it expires 72 hours later."""
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     made = today - timedelta(days=1) + timedelta(hours=16)
     return tuple(moment.isoformat().replace("+00:00", "Z") for moment in (made, made + timedelta(hours=72)))
@@ -20,7 +20,8 @@ def _ben_offer_times() -> tuple[str, str]:
 
 def seed(connection: Connection) -> None:
     """Insert one completed and one pending direct swap for the demo, and an offer
-    waiting for Carla's answer (Ben's They Say / I Say for her Business Essentials)."""
+    waiting for Carla's answer (Leonor's University Physics for her Business Essentials).
+    Leonor is a classmate who never logs in, so accepting shows a made-up email."""
     offers = [
         {
             "id": "offer-demo-completed",
@@ -41,12 +42,12 @@ def seed(connection: Connection) -> None:
             "expires_at": PENDING_EXPIRES_AT,
         },
     ]
-    made, expires = _ben_offer_times()
+    made, expires = _offer_times()
     offers.append(
         {
-            "id": "offer-demo-ben",
-            "proposer_id": "user-ben",
-            "offered_copy_id": "copy-14",  # They Say / I Say
+            "id": "offer-demo-leonor",
+            "proposer_id": "extra-leonor",
+            "offered_copy_id": "copy-52",  # University Physics (seed/base.py)
             "requested_copy_id": "copy-15",  # Carla's Business Essentials
             "status": "pending",
             "created_at": made,
