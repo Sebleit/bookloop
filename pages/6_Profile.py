@@ -60,8 +60,17 @@ def _header(person: Profile, own: bool, review_count: int) -> None:
     result = reviews_repo.swapper_score(person.id)
     st.subheader(person.display_name)
     col1, col2, col3 = st.columns(3)
-    col1.metric("Swapper Score", f"{result.score:.2f}")
-    col2.metric("Accuracy", f"{result.accuracy:.0f}%" if review_count else "—")
+    col1.metric(
+        "Swapper Score",
+        f"{result.score:.2f}",
+        help="From the stars others gave for their swaps with this person: the meeting, "
+        "not the books.",
+    )
+    col2.metric(
+        "Accuracy",
+        f"{result.accuracy:.0f}%" if review_count else "—",
+        help="How many of their books arrived in the condition they listed, or better.",
+    )
     col3.metric("Badge", result.badge or "—")
     st.caption(
         f"Based on {review_count} review{'s' if review_count != 1 else ''}. Everyone starts "
@@ -90,8 +99,10 @@ def _reviews_to_write(user: Profile) -> None:
         return
 
     st.caption(
-        "Reviews can't be changed after you submit them. Your review stays hidden until "
-        "everyone in the swap has reviewed, or for 7 days, so nobody can review in revenge."
+        "Your review has two parts: stars for the swap (the person and the meeting), and "
+        "the condition the book arrived in. Reviews can't be changed after you submit them, "
+        "and yours stays hidden until everyone in the swap has reviewed, or the 14 days for "
+        "reviewing are over, so nobody can review in revenge."
     )
     for item in waiting:
         with st.form(f"review_form_{item.trade.id}"):
@@ -99,21 +110,34 @@ def _reviews_to_write(user: Profile) -> None:
                 f"**{item.title}** from **{item.giver_name}**, listed as "
                 f"*{CONDITIONS[item.listed_condition]}*"
             )
-            stars = st.select_slider("Stars", options=[1, 2, 3, 4, 5], value=5)
-            described = st.radio("Was the condition as described?", ["Yes", "No"], horizontal=True)
+            stars = st.select_slider(
+                f"1. How did the swap with {item.giver_name} go?",
+                options=[1, 2, 3, 4, 5],
+                value=5,
+                format_func=lambda count: "★" * count,
+            )
+            st.caption(
+                f"Rate {item.giver_name} and the meeting: on time, polite, easy to arrange. "
+                "Not the book: that's the next question."
+            )
             actual = st.selectbox(
-                "Actual condition",
+                "2. What condition did the book arrive in?",
                 CONDITION_ORDER,
                 index=CONDITION_ORDER.index(item.listed_condition),
                 format_func=CONDITIONS.get,
             )
+            st.caption(
+                f"It was listed as *{CONDITIONS[item.listed_condition]}*. Pick what you actually "
+                "received: if it's worse, the book counts as not as described, and if it's 2 or "
+                "more levels worse, a moderator checks the swap."
+            )
             comment = st.text_area("Comment (required for 1 or 2 stars)", max_chars=500)
             submitted = st.form_submit_button("Submit review")
         if submitted:
-            _submit_review(user, item, stars, described == "Yes", actual, comment)
+            _submit_review(user, item, stars, actual, comment)
 
 
-def _submit_review(user: Profile, item, stars: int, as_described: bool, actual: int, comment: str) -> None:
+def _submit_review(user: Profile, item, stars: int, actual: int, comment: str) -> None:
     trade = reviews_repo.get_trade(item.trade.id)  # fresh copy, in case it changed
     decision = can_review(user, trade, reviews_repo.has_review(trade.id))
     if decision.allowed:
@@ -122,7 +146,7 @@ def _submit_review(user: Profile, item, stars: int, as_described: bool, actual: 
         st.error(decision.reason)
         return
     try:
-        saved = reviews_repo.save_review(trade, stars, as_described, actual, comment)
+        saved = reviews_repo.save_review(trade, stars, actual, comment)
     except Exception:
         st.error("Your review could not be saved. Please try again.")
         return
@@ -131,7 +155,10 @@ def _submit_review(user: Profile, item, stars: int, as_described: bool, actual: 
     if is_visible(saved.review.visible_from):
         message += " Everyone in the swap has now reviewed, so the reviews are visible."
     else:
-        message += " It will appear once everyone in the swap has reviewed, or in 7 days."
+        message += (
+            " It will appear once everyone in the swap has reviewed, or when the 14 days for "
+            "reviewing are over."
+        )
     if saved.flagged:
         message += " The book arrived 2+ levels worse than listed, so a moderator will check the swap."
     _flash("success", message)
