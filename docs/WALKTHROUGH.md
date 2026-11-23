@@ -44,6 +44,9 @@ The search text is passed to SQL as a parameter, never pasted into the query, so
 **What does the wishlist do?**
 You add a book you want; when someone lists a copy of it, everyone who wants it gets a notification in the sidebar.
 
+**Where do the courses come from?**
+The demo starts with real Nova SBE courses, with their codes from the course catalogue, for example "Computer Programming (1318)". When you add a book, you pick from the courses other students have added, or type a new one: it's saved and offered to everyone after you. Typing "computer programming" or "1318" reuses the existing course instead of making a copy. Courses belong to the book, so editing them on My Shelf changes them for everyone who has that book.
+
 ## Direct swaps, handoffs and stats
 
 **Why is a direct swap a loop of 2?**
@@ -55,11 +58,16 @@ Accepting reserves both copies, creates the loop and its two trades, and cancels
 **What are the offer rules?**
 At most 5 pending offers each; an offer expires after 72 hours; you can only offer your own available copy; users under review or suspended can't make offers. (`bookloop/rules/offers.py`)
 
-**How do handoff codes work?**
-Each trade has a 4-digit code that only the receiver sees. At the meeting the giver types it into My Swaps. Right code: the trade completes and the receiver becomes the owner. Wrong code: refused and counted; after 3 wrong codes the trade is locked. It proves the two people met. (`bookloop/rules/handoffs.py`)
+**How do handoff codes work, and are they safe?**
+Each trade has a 4-digit code that only the receiver sees. At the meeting the giver types it into My Swaps. Right code: the trade completes and the receiver becomes the owner. Wrong code: refused and counted; after 3 wrong codes the trade is locked, so guessing has a 3 in 10,000 chance. Codes come from Python's `secrets` module, which is made for security. The code proves the receiver agreed the book changed hands, so one person alone can't claim a swap happened. It doesn't stop two friends who share codes: that's the "friends boosting scores" limit. (`bookloop/rules/handoffs.py`)
 
-**What happens with a no-show?**
-Anyone in the swap can report who didn't come (in a round loop they choose the person). The loop is cancelled, every book goes back to available, and the no-show is recorded on the loop.
+**What if someone in a loop doesn't hand over their book?**
+Everyone in a swap meets at the same place and time, and nobody hands over a book until everyone is there; My Swaps says so above every swap.
+- If someone doesn't come, nobody has handed over anything yet: anyone reports a no-show, the swap is cancelled, and everyone keeps their own book.
+- Once a code has been typed, everyone was there, so "no-show" disappears. If someone still doesn't hand over their book, the others click "Report a problem": the moderator gets a report with a picture of the swap (green arrows for books handed over, grey for books still waiting) and can resolve it or suspend the person. Nothing is cancelled automatically, because nobody would really go back and return a book.
+
+**Can the moderator see a swap?**
+Yes: on Swap Round, after a round runs, each loop is drawn as a circle of people with an arrow per book; and every "book not handed over" report on the Moderator page has the picture of that swap.
 
 **What does the Stats page show?**
 For moderators: books listed, swaps completed, the average score, the most-wanted books, and a CSV download of it all.
@@ -160,3 +168,4 @@ Few libraries, exact versions pinned in `uv.lock`, and `pip-audit` checks them f
 - Notifications only appear inside the app. *Fix: send an email too.*
 - There's no "Forgot password?" link, and email confirmation is off for the demo. *Fix: connect an email service, add the link and turn confirmation back on.*
 - Repeated no-shows are recorded but don't lead to anything automatically. *Fix: put someone under review after 2 no-shows.*
+- If someone takes a book and doesn't hand theirs over, the app can't force them. *The meeting rule prevents it, and the moderator can suspend them.*
