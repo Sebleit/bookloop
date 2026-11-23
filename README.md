@@ -16,12 +16,21 @@ Nova SBE students swap textbooks with each other: no money, just one book for an
 
 ## What it does
 
-- **List your books.** Type an ISBN and the title, authors and cover come from Open Library.
-- **Browse and wishlist.** Search books by title, author, ISBN or course, and get notified when a book you want is listed.
-- **Direct swaps.** Offer one of your books for someone else's. If they accept, you both see each other's email to agree where and when to meet.
-- **Swap rounds.** Everyone puts in books and ticks the ones they'd accept. The app finds loops, so three or more people can swap even when no two of them could swap directly.
-- **Handoffs.** The receiver shows a 4-digit code and the giver types it, which moves the book to its new owner.
-- **Reviews and moderation.** Receivers review the swap and the book's condition, which builds each person's Swapper Score. Moderators check reported problems.
+Students list the textbooks they no longer need and swap them for ones they do. There are two ways to swap: a **direct swap** between two people, or a weekly **swap round**, where the app finds circles of students who can all swap at once, even when no two of them want each other's book. Every handoff is confirmed with a code, receivers review what they got, and moderators deal with problems.
+
+**Listing books (My Shelf).** Type a book's ISBN and its title, authors and cover come from Open Library; if Open Library doesn't know it, you type them yourself. You add the condition (poor, fair, good or like new), any highlighting and a note. You can edit or withdraw a book while nobody is counting on it.
+
+**Browsing and wishlist (Browse, My Shelf).** Search all available books by title, author or ISBN, and filter by Nova SBE course or condition. Each book shows the courses it's used in, and students can add a course that's missing. Put a book on your wishlist and you get a notification when someone lists it.
+
+**Direct swaps (Offers).** Offer one of your books for one of someone else's, and see their Swapper Score first. They can accept or decline; an offer expires after 72 hours. Accepting shares both people's emails, so the two can agree where and when to meet.
+
+**Swap rounds (Swap Round).** A moderator opens a round each week. First, students put in the books they're willing to give. Then each student ticks the books they'd accept in return, optionally only from people above a minimum Swapper Score. When the moderator runs the round, the app finds loops of 2 to 6 people (Ana gives to Farah, Farah to Eli, Eli to Ana), shortest first, and everyone in a loop meets at the place and time the moderator set. Books nobody wanted go back on their owners' shelves.
+
+**Handoffs (My Swaps).** Everyone in a swap meets at the same time, and nobody hands over a book until everyone is there. The receiver shows a random 4-digit code and the giver types it, which makes the receiver the new owner. Three wrong codes lock the trade. If someone doesn't come, a no-show cancels the swap and everyone keeps their book; if someone came but didn't hand over their book, the others report it to a moderator.
+
+**Reviews and Swapper Score (Profile).** After a swap, the receiver gives stars for the swap and says what condition the book arrived in. Reviews stay hidden until both sides have reviewed, or the 14 days for reviewing are over, so nobody can review in revenge. Reviews build each person's Swapper Score and badge (New, Trusted or Under review). Everyone starts as if they had three 4-star reviews, and someone with a low score or repeatedly misdescribed books goes under review: they can't make offers or join rounds until a moderator clears them.
+
+**Moderation (Moderator, Stats).** Moderators see reports of books not handed over, with a picture of the swap and the email of everyone in it, and books that arrived two or more conditions worse than listed. They can resolve a problem, clear or suspend a user, and hide an abusive review; every action is logged. The Stats page shows books listed, swaps completed, the average score and the most-wanted books, with a CSV download.
 
 ## Run it locally
 
