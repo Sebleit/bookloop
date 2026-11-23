@@ -83,3 +83,21 @@ def can_cancel(offer: Offer, user_id: str) -> Decision:
     if offer.proposer_id != user_id:
         return Decision.no("Only the person who made the offer can cancel it.")
     return Decision.yes()
+
+
+MAX_PLACE_LENGTH = 100
+
+
+def check_meeting(meet_place: str | None, meet_time: str | datetime, now: datetime | None = None) -> Decision:
+    """When accepting an offer, the two people agree where and when to meet.
+
+    The place can't be empty or too long, and the time must be in the future.
+    """
+    place = (meet_place or "").strip()
+    if not place:
+        return Decision.no("Add where you'll meet.")
+    if len(place) > MAX_PLACE_LENGTH:
+        return Decision.no(f"Keep the meeting place under {MAX_PLACE_LENGTH} characters.")
+    if _as_utc(meet_time) <= _as_utc(now or datetime.now(timezone.utc)):
+        return Decision.no("Choose a meeting time in the future.")
+    return Decision.yes()
