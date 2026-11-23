@@ -140,18 +140,35 @@ def _moderator_controls(user: Profile, round: Round, entries: list, wants: list)
             if st.button("Run round", type="primary"):
                 _run(user, round)
         elif round.phase == "matched":
-            st.write(f"This round created {_loop_count(round)} loops.")
+            st.write(f"This round created {_loop_count(round)}.")
+            _show_loops(round)
             if st.button("Close round"):
                 _advance(user, round, "The round is closed.")
         else:
-            st.write(f"This round is closed. It created {_loop_count(round)} loops.")
+            st.write(f"This round is closed. It created {_loop_count(round)}.")
+            _show_loops(round)
 
 
 def _loop_count(round: Round) -> str:
     try:
-        return str(rounds_repo.count_loops(round.id))
+        count = rounds_repo.count_loops(round.id)
     except Exception:
-        return "an unknown number of"
+        return "an unknown number of loops"
+    return f"{count} loop{'s' if count != 1 else ''}"
+
+
+def _show_loops(round: Round) -> None:
+    """For moderators: each loop around the circle, and who gives which book."""
+    try:
+        loops = rounds_repo.loops_in_round(round.id)
+    except Exception:
+        st.caption("The loops can't be shown right now.")
+        return
+    for number, trades in enumerate(loops, start=1):
+        circle = " → ".join([trade.giver_name for trade in trades] + [trades[0].giver_name])
+        st.write(f"**Loop {number}:** {circle}")
+        for trade in trades:
+            st.caption(f"{trade.giver_name} gives “{trade.title}” to {trade.receiver_name}")
 
 
 def _advance(user: Profile, round: Round, done_message: str) -> None:
