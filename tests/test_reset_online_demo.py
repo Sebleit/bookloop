@@ -5,7 +5,9 @@ random ids, like Supabase accounts. The script was also tried by hand on a
 real PostgreSQL set up with db/supabase_only.sql.
 """
 
+import re
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -127,3 +129,34 @@ def test_without_an_online_database_the_script_refuses(monkeypatch, capsys):
     assert reset_online_demo.main(["--yes"]) == 1
 
     assert "nothing was changed" in capsys.readouterr().out
+
+
+def test_the_sql_version_links_every_demo_person_to_their_account(demo):
+    sql = reset_online_demo.reset_sql(demo, datetime(2026, 11, 23, tzinfo=timezone.utc))
+
+    assert sql.startswith("-- BookLoop: reset the online demo data.")
+    assert "shift integer := (now() AT TIME ZONE 'UTC')::date - date '2026-11-23';" in sql
+    assert "DELETE FROM profiles WHERE id NOT IN (SELECT id::text FROM auth.users);" in sql
+    for table in reset_online_demo.TABLES:
+        assert f"DELETE FROM {table};" in sql
+    # A demo person's id only appears in the list of demo accounts or in a lookup of their
+    # account, never as a raw value (which would break the links on Supabase).
+    for name in DEMO_PEOPLE:
+        demo_id = "'user-moderator'" if name == "Morgan" else f"'user-{name.lower()}'"
+        everywhere = sql.count(demo_id)
+        looked_up = sql.count(f"demo_id = {demo_id}")
+        listed = sql.count(f"({demo_id}, '{name}'")
+        assert everywhere == looked_up + listed and listed == 1
+
+
+def test_the_sql_file_in_the_repo_matches_the_demo_data(demo):
+    # If this fails, the demo data changed: run `uv run python reset_online_demo.py --sql
+    # db/demo_reset.sql` again. Dates are compared without the day they were written.
+    in_repo = (Path(reset_online_demo.__file__).parent / "db" / "demo_reset.sql").read_text(encoding="utf-8")
+    made_on = re.search(r"date '(\d{4}-\d{2}-\d{2})'", in_repo)[1]
+    fresh = reset_online_demo.reset_sql(demo, datetime.fromisoformat(made_on).replace(tzinfo=timezone.utc))
+
+    def without_times(sql: str) -> str:
+        return re.sub(r"timestamp '[^']+'", "timestamp '…'", sql)
+
+    assert without_times(fresh) == without_times(in_repo)
