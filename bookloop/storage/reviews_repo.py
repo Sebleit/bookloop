@@ -19,7 +19,7 @@ from sqlalchemy.engine import Connection
 
 from bookloop.models import AuditLog, Profile, Review, Trade
 from bookloop.rules import reputation
-from bookloop.rules.reviews import is_misdescribed, is_visible, review_visible_from
+from bookloop.rules.reviews import arrived_as_described, is_misdescribed, is_visible, review_visible_from
 from bookloop.services.notify import notify
 from bookloop.storage.db import transaction
 
@@ -327,16 +327,18 @@ def swap_history(user_id: str) -> list[HistoryItem]:
 def save_review(
     trade: Trade,
     stars: int,
-    as_described: bool,
     actual_condition: int,
     comment: str | None,
 ) -> SavedReview:
     """Save the receiver's review, then flag and set under_review if needed.
 
+    "As described" isn't asked: it's worked out from the condition the book
+    arrived in, compared with its listing.
+
     In one transaction:
     1. Work out when the review becomes visible: now if everyone in the swap
        has now reviewed (and then the others become visible too), otherwise
-       in 7 days.
+       when the 14 days for reviewing the swap are over.
     2. Flag the swap if the book arrived 2+ levels worse than listed.
     3. Set the giver to under_review if the reputation rules say so. This
        check uses blind reviews too: it protects other students straight away,
@@ -361,7 +363,8 @@ def save_review(
             {"loop": trade.loop_id},
         ).scalar_one()
         everyone_reviewed = reviewed_in_loop + 1 >= trades_in_loop
-        visible = review_visible_from(now, everyone_reviewed, now)
+        visible = review_visible_from(trade.completed_at, everyone_reviewed, now)
+        as_described = arrived_as_described(listed_condition, actual_condition)
 
         review = Review(
             id=review_id,
