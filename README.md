@@ -17,11 +17,12 @@ Students swap textbooks with each other: no money, just books for books.
 
 - **List your books.** Type an ISBN and the title, authors and cover come from Open Library. If Open Library doesn't answer, you type them yourself.
 - **Browse and wishlist.** Search by title, author or ISBN, filter by course and condition. Add a book to your wishlist and you're notified when someone lists it.
+- **Nova SBE courses.** Each book shows the courses it's used in. Students pick from the courses others added, or type a new one, which is then offered to everyone.
 - **Direct swaps.** Offer one of your books for someone else's. They accept, decline, or let it expire after 72 hours.
 - **Swap rounds.** Everyone puts in books and ticks the ones they'd accept. The app finds loops (Ana → Farah → Eli → Ana), so three or more people can swap when no two of them could swap directly.
-- **Safe handoffs.** At the meeting, the giver types the receiver's 4-digit code. That proves the meeting happened and moves the book to its new owner. Three wrong codes lock the trade.
+- **Safe handoffs.** Everyone in a swap meets at the same place and time, and nobody hands over a book until everyone is there. The giver types the receiver's 4-digit code, which moves the book to its new owner; three wrong codes lock the trade. If someone doesn't come, a no-show cancels the swap and everyone keeps their own book. If someone came but didn't hand over their book, it's reported to a moderator.
 - **Reviews and Swapper Score.** The receiver reviews the giver in two parts: stars for the swap (the person and the meeting) and the condition the book arrived in. Reviews stay hidden until everyone in the swap has reviewed, or the 14 days for reviewing end, so nobody can review in revenge. They build each person's score and badge (New, Trusted, Under review).
-- **Moderation.** Moderators see books that arrived 2+ conditions worse than listed, clear or suspend users, hide abusive reviews, and see community stats.
+- **Moderation.** Moderators see each swap as a picture (who gives which book to whom, and what has been handed over), reports of books not handed over, and books that arrived 2+ conditions worse than listed. They clear or suspend users, hide abusive reviews, and see community stats.
 
 ## Run it on your laptop
 
