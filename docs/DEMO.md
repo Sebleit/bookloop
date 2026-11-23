@@ -11,7 +11,7 @@ Every step below was played on the demo data in a real browser, and the messages
 
 **The day before**
 
-- [ ] The online database has the demo data and the demo accounts (see [The online demo data](#the-online-demo-data) below).
+- [ ] The demo accounts exist on the live app (see [The online demo data](#the-online-demo-data) below), and `uv run python reset_online_demo.py` finds all seven.
 - [ ] Rehearse the whole script once on the online app, then reset the demo data.
 - [ ] Look up the ISBN for step 2 once and check that a cover appears: **9780134472089** (Hull, *Options, Futures, and Other Derivatives*). Backup: **9780061234002** (*Freakonomics*). If neither shows a cover, pick another book that isn't already in the demo data.
 
@@ -19,7 +19,7 @@ Every step below was played on the demo data in a real browser, and the messages
 
 - [ ] Supabase dashboard: the project isn't paused. A free project pauses after a week without activity.
 - [ ] Open the app's address. If it says the app is asleep, click the button to wake it, and wait until the login form appears.
-- [ ] Reset the demo data, so the round hasn't run yet, Carla's handoff is still waiting and Eli's book is still waiting for Carla's review.
+- [ ] Reset the demo data: `uv run python reset_online_demo.py --yes`. The round hasn't run yet, Carla's handoff is waiting, and Eli's book is waiting for Carla's review. The dates follow the day of the reset, so always reset on the demo day.
 - [ ] **Left window:** open the app's address with `/Moderator` at the end, and log in as Carla. She sees "You don't have permission to view this page." Leave it like that: it's the first thing you show.
 - [ ] **Right window:** log in as Morgan and open **Swap Round**.
 - [ ] No passwords, dashboards or other tabs on screen. Zoom the browser to 110–125% so the room can read it.
@@ -54,11 +54,15 @@ The steps follow the plan's order, except the student check (plan step 6) comes 
 
 ## The online demo data
 
-`seed.py` creates the demo data (Carla, Dina, Eli, the round, the waiting handoff, the review) only in the laptop database. Online, people log in with Supabase accounts, and each profile's id is the Supabase account's id, so the laptop demo users can't be used as they are. Before the demo, the online database needs:
+`seed.py` only builds the laptop database. Online, people log in with Supabase accounts, so the demo data has to be linked to real accounts:
 
-1. Demo accounts for Carla and Morgan (and ideally Ana, Ben, Dina, Eli and Farah, so the data makes sense), with Morgan's role set to `moderator`.
-2. The demo data loaded into Supabase and linked to those accounts.
-3. A way to reset it on the morning of the demo.
+1. **Once:** on the live app's **Sign up** tab, create an account for each demo person with these first names: **Morgan, Ana, Ben, Carla, Dina, Eli, Farah** (any emails you can open, and passwords kept in a password manager).
+2. **Before each demo**, from a laptop with the project, with `DATABASE_URL` set to the online database (in the terminal or in `.streamlit/secrets.toml`):
+   ```bash
+   uv run python reset_online_demo.py        # checks that all seven accounts exist; changes nothing
+   uv run python reset_online_demo.py --yes  # resets the online demo data
+   ```
+   The reset deletes every book, swap, round, review and notification online (accounts are kept), loads the same demo data as `seed.py` linked to those accounts, makes Morgan the moderator and puts Dina under review. It's one transaction: if anything fails, nothing changes.
 
 ## Rehearsing on a laptop
 

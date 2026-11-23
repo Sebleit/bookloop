@@ -27,6 +27,9 @@ Each of us owned some files. Changes were made on branches and merged into `main
 **How do you run it?**
 `uv sync`, `uv run python seed.py`, `uv run streamlit run app.py`. Tests: `uv run pytest`. See the [README](../README.md).
 
+**How do you get the demo data onto the live app?**
+`reset_online_demo.py`. It builds the same demo data as `seed.py` and copies it into Supabase, linked to demo accounts we signed up on the live app (found by first name). It's one transaction, so if anything fails nothing changes. The demo dates follow the day of the reset, so we reset on the demo day.
+
 ## Listings and login
 
 **Why are books and copies separate tables?**
