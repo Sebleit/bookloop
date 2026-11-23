@@ -1,7 +1,6 @@
 # Swap database operations.
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
-from secrets import randbelow
 from typing import Any
 from uuid import uuid4
 
@@ -9,7 +8,7 @@ from sqlalchemy import text
 
 from bookloop.models import Copy, Loop, Offer
 from bookloop.models import Trade
-from bookloop.rules.handoffs import check_code, is_locked, no_show_outcome
+from bookloop.rules.handoffs import check_code, is_locked, new_code, no_show_outcome
 from bookloop.rules.offers import can_accept, can_cancel, is_expired
 from bookloop.storage.db import transaction
 
@@ -373,7 +372,7 @@ def _create_loop_in_connection(
                 "copy_id": trade["copy_id"],
                 "giver_id": trade["giver_id"],
                 "receiver_id": trade["receiver_id"],
-                "handoff_code": f"{randbelow(10_000):04d}",
+                "handoff_code": new_code(),
             },
         )
 
@@ -473,25 +472,36 @@ def _trade_from_row(row: Mapping[str, Any]) -> Trade:
 
 
 def trades_for_user(user_id: str) -> list[dict[str, Any]]:
-    """Return a user's pending handoffs with meeting and book details."""
+    """Return a user's pending handoffs with meeting and book details.
+
+    In a direct swap (from an offer) both people agreed to share their email
+    when the offer was made and accepted, so each sees the other's email to
+    arrange the meeting. In a round the moderator sets the meeting, and
+    nobody's email is shared. Only the user's own swaps are returned, so a
+    user never gets the email of someone they aren't swapping with.
+    """
     with transaction() as connection:
         rows = connection.execute(
             text(
                 "SELECT t.id, t.loop_id, t.copy_id, t.giver_id, t.receiver_id, "
                 "t.handoff_code, t.code_attempts, t.status, t.completed_at, "
-                "l.meet_place, l.meet_time, b.title, "
-                "giver.display_name AS giver_name, receiver.display_name AS receiver_name "
+                "l.source, l.meet_place, l.meet_time, b.title, "
+                "giver.display_name AS giver_name, receiver.display_name AS receiver_name, "
+                "CASE WHEN l.source = 'offer' THEN giver.email END AS giver_email, "
+                "CASE WHEN l.source = 'offer' THEN receiver.email END AS receiver_email "
                 "FROM trades t "
                 "JOIN loops l ON l.id = t.loop_id "
+                "LEFT JOIN offers o ON o.id = l.offer_id "
                 "JOIN profiles giver ON giver.id = t.giver_id "
                 "JOIN profiles receiver ON receiver.id = t.receiver_id "
                 "JOIN copies c ON c.id = t.copy_id "
                 "JOIN books b ON b.id = c.book_id "
                 "WHERE (t.giver_id = :user_id OR t.receiver_id = :user_id) "
                 "AND t.status = 'pending' AND l.status = 'scheduled' "
-                # Swaps with a meeting time first, soonest first; "to be arranged" ones last.
-                # In each swap, the book you give comes before the one you get.
-                "ORDER BY CASE WHEN l.meet_time IS NULL THEN 1 ELSE 0 END, l.meet_time, t.loop_id, "
+                # Swaps with a meeting time first, soonest first; then direct swaps,
+                # newest offer first. In each swap, the book you give comes first.
+                "ORDER BY CASE WHEN l.meet_time IS NULL THEN 1 ELSE 0 END, l.meet_time, "
+                "o.created_at DESC, t.loop_id, "
                 "CASE WHEN t.giver_id = :user_id THEN 0 ELSE 1 END, t.id"
             ),
             {"user_id": user_id},
@@ -500,11 +510,14 @@ def trades_for_user(user_id: str) -> list[dict[str, Any]]:
     return [
         {
             "trade": _trade_from_row(row),
+            "source": row["source"],
             "meet_place": row["meet_place"],
             "meet_time": row["meet_time"],
             "title": row["title"],
             "giver_name": row["giver_name"],
             "receiver_name": row["receiver_name"],
+            "giver_email": row["giver_email"],
+            "receiver_email": row["receiver_email"],
         }
         for row in rows
     ]

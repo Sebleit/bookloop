@@ -98,10 +98,12 @@ class ProblemReport:
 @dataclass(frozen=True)
 class FlaggedSwap:
     trade_id: str
+    loop_id: str
     title: str
     giver_id: str
     giver_name: str
     receiver_name: str
+    listed_condition: int
     actual_condition: int
     stars: int
     comment: str | None
@@ -202,6 +204,34 @@ def get_profile(user_id: str) -> Profile | None:
             {"id": user_id},
         ).mappings().first()
     return Profile(**row) if row else None
+
+
+def save_email(user_id: str, email: str | None) -> None:
+    """Keep a profile's email the same as its login account's (called at each login)."""
+    if not email:
+        return
+    with transaction() as connection:
+        connection.execute(
+            text("UPDATE profiles SET email = :email WHERE id = :id AND (email IS NULL OR email <> :email)"),
+            {"email": email, "id": user_id},
+        )
+
+
+def swap_contacts(loop_id: str) -> list[dict[str, str | None]]:
+    """Everyone in a swap with their email, for a moderator checking a report or a flag.
+
+    Only the Moderator page calls this: the page itself checks the role first.
+    """
+    with transaction() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT DISTINCT p.display_name, p.email FROM profiles p "
+                "JOIN trades t ON p.id IN (t.giver_id, t.receiver_id) "
+                "WHERE t.loop_id = :loop_id ORDER BY p.display_name"
+            ),
+            {"loop_id": loop_id},
+        ).mappings().all()
+    return [{"name": row["display_name"], "email": row["email"]} for row in rows]
 
 
 def list_profiles() -> list[Profile]:
@@ -485,9 +515,10 @@ def flagged_swaps() -> list[FlaggedSwap]:
     with transaction() as connection:
         rows = connection.execute(
             text(
-                "SELECT f.target_id AS trade_id, f.created_at AS flagged_at, b.title, t.giver_id, "
-                "g.display_name AS giver_name, rc.display_name AS receiver_name, "
-                "r.actual_condition, r.stars, r.comment FROM audit_log f "
+                "SELECT f.target_id AS trade_id, t.loop_id, f.created_at AS flagged_at, b.title, "
+                "t.giver_id, g.display_name AS giver_name, rc.display_name AS receiver_name, "
+                'c."condition" AS listed_condition, r.actual_condition, r.stars, r.comment '
+                "FROM audit_log f "
                 "JOIN trades t ON t.id = f.target_id "
                 "JOIN copies c ON c.id = t.copy_id "
                 "JOIN books b ON b.id = c.book_id "
