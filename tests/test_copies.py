@@ -181,7 +181,7 @@ def test_adding_a_copy_puts_it_on_the_shelf_with_its_courses(make_user):
 
     assert (copy.status, copy.notes, told) == ("available", "Barely used", 0)
     (item,) = copies_repo.search_available("python")
-    assert item.courses == ["NOVA101"]
+    assert item.courses == ["Introduction to Programming"]
 
 
 def test_editing_a_copy_saves_the_new_details(make_user, make_copy):
@@ -380,7 +380,7 @@ def test_browse_shows_books_with_the_owners_score(shelf):
 
     assert not page.exception
     assert page.caption[0].value == "2 books available"
-    assert any("Offered by **Carla** · ★ 4.00 · New" == text.value for text in page.markdown)
+    assert any("Offered by **Carla** · Swapper Score 4.00" == text.value for text in page.markdown)
 
 
 def test_browse_search_box_narrows_the_list(shelf):
@@ -399,3 +399,82 @@ def test_browse_shows_a_sensible_message_when_nothing_matches(shelf):
     page.text_input[0].input("quantum chemistry").run()
 
     assert page.info[0].value.startswith("No books match your search.")
+
+
+# --- Courses ---------------------------------------------------------------
+
+
+def test_course_names_are_cleaned_checked_and_labelled():
+    from bookloop.rules.copies import check_course_name, clean_course_name, course_label
+
+    assert clean_course_name("  Corporate   Finance ") == "Corporate Finance"
+    assert check_course_name("Corporate Finance").allowed is True
+    assert check_course_name(" x ").allowed is False
+    assert check_course_name("x" * 81).allowed is False
+    assert course_label("1318", "Computer Programming") == "Computer Programming (1318)"
+    assert course_label("Corporate Finance", "Corporate Finance") == "Corporate Finance"
+
+
+def test_a_typed_course_reuses_an_existing_one_whatever_the_capitals():
+    course_id = add_course("1318", "Computer Programming")
+
+    for typed in ("computer programming", "1318", "Computer Programming (1318)", "  COMPUTER  PROGRAMMING "):
+        assert copies_repo.find_or_create_course(typed).id == course_id
+    assert len(copies_repo.list_courses()) == 1
+
+
+def test_a_new_course_is_saved_and_offered_to_everyone():
+    created = copies_repo.find_or_create_course("  Corporate   Finance ")
+
+    assert (created.code, created.name) == ("Corporate Finance", "Corporate Finance")
+    assert [course.name for course in copies_repo.list_courses()] == ["Corporate Finance"]
+    assert copies_repo.find_or_create_course("corporate finance").id == created.id
+
+
+def test_a_books_courses_can_be_replaced():
+    book = copies_repo.save_book(a_book())
+    programming, finance = add_course("1318", "Computer Programming"), add_course("1219", "Finance")
+    copies_repo.set_book_courses(book.id, [programming])
+
+    copies_repo.set_book_courses(book.id, [finance, programming, finance])
+
+    assert sorted(copies_repo.book_course_ids(book.id)) == sorted([finance, programming])
+
+
+def test_my_shelf_adds_a_book_with_a_course_typed_in(make_user, fake_lookup):
+    add_course("1318", "Computer Programming")
+    ana = make_user(name="Ana")
+
+    page = open_page("2_My_Shelf.py", ana)
+    page.text_input[0].input("978-0-00-000000-0")
+    page = click(page, "Look up")
+    by_label(page.selectbox, "Condition").set_value(4)
+    picker = by_label(page.multiselect, "Courses it's used in")
+    assert picker.options == ["Computer Programming (1318)"]  # what others added so far
+    picker.set_value(["Computer Programming (1318)", "Corporate Finance"])
+    page = click(page, "Add to my shelf")
+
+    assert not page.exception
+    (item,) = copies_repo.list_my_copies(ana.id)
+    names = {course.id: course.name for course in copies_repo.list_courses()}
+    assert sorted(names[i] for i in copies_repo.book_course_ids(item.book.id)) == [
+        "Computer Programming",
+        "Corporate Finance",
+    ]
+
+
+def test_my_shelf_edit_changes_the_books_courses(make_user, make_copy):
+    ana = make_user(name="Ana")
+    copy = make_copy(owner=ana)
+    finance = add_course("1219", "Finance")
+    add_course("1318", "Computer Programming")
+
+    page = open_page("2_My_Shelf.py", ana)
+    picker = by_label(page.multiselect, "Courses it's used in")
+    assert picker.value == []
+    picker.set_value(["Finance (1219)"])
+    page = click(page, "Save changes")
+
+    assert not page.exception
+    assert page.success[0].value == "Your changes are saved."
+    assert copies_repo.book_course_ids(copy.book_id) == [finance]
