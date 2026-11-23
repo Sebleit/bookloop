@@ -3,7 +3,9 @@
 Adding a book: type the ISBN, and the title, authors and cover fill in from
 Open Library. If Open Library doesn't know the ISBN or doesn't answer in
 time, a form appears to type the details by hand. Then choose the condition,
-highlighting, notes and the courses the book is used in.
+highlighting, notes and the courses the book is used in: pick from the
+courses other students added, or type a new one, which is then offered to
+everyone. Editing a book can change its courses too.
 """
 
 from uuid import uuid4
@@ -20,8 +22,10 @@ from bookloop.rules.copies import (
     can_list,
     can_withdraw,
     check_book_details,
+    check_course_name,
     check_isbn,
     clean_isbn,
+    course_label,
 )
 from bookloop.rules.wishlist import can_add_to_wishlist, can_remove_from_wishlist
 from bookloop.services import openlibrary
@@ -54,6 +58,33 @@ def _show_flash() -> None:
         st.success(text)
     else:
         st.error(text)
+
+
+def _course_picker(selected_ids: list[str] | None = None, key: str | None = None) -> list[str]:
+    """Courses other students added, plus anything typed in: returns names."""
+    labels = {course.id: course_label(course.code, course.name) for course in copies_repo.list_courses()}
+    chosen = st.multiselect(
+        "Courses it's used in",
+        list(labels.values()),
+        default=[labels[course_id] for course_id in (selected_ids or []) if course_id in labels],
+        accept_new_options=True,
+        placeholder="Pick a course, or type a new one",
+        key=key,
+    )
+    st.caption(
+        "These are the courses students have added so far. If yours isn't there, type its "
+        "name and press Enter: it will be offered to everyone after you."
+    )
+    return chosen
+
+
+def _course_ids(chosen: list[str]) -> tuple[list[str], str | None]:
+    """The ids of the chosen courses, adding new ones. Returns (ids, error)."""
+    for name in chosen:
+        decision = check_course_name(name)
+        if not decision.allowed:
+            return [], decision.reason
+    return [copies_repo.find_or_create_course(name).id for name in chosen], None
 
 
 def find_book(isbn: str) -> Book | None:
@@ -95,7 +126,6 @@ def _add_copy_form(user: Profile, isbn: str, book: Book | None) -> None:
             "Type the book's details yourself."
         )
 
-    courses = copies_repo.list_courses()
     with st.form("add_copy_form"):
         title = authors = edition = ""
         if book is None:
@@ -107,11 +137,7 @@ def _add_copy_form(user: Profile, isbn: str, book: Book | None) -> None:
         )
         highlighting = st.selectbox("Highlighting", HIGHLIGHTING)
         notes = st.text_area("Notes (optional)", max_chars=500)
-        course_ids = st.multiselect(
-            "Courses it's used in",
-            [course.id for course in courses],
-            format_func={course.id: f"{course.code} — {course.name}" for course in courses}.get,
-        )
+        chosen_courses = _course_picker()
         submitted = st.form_submit_button("Add to my shelf")
     if not submitted:
         return
@@ -126,6 +152,10 @@ def _add_copy_form(user: Profile, isbn: str, book: Book | None) -> None:
         return
 
     try:
+        course_ids, course_error = _course_ids(chosen_courses)
+        if course_error:
+            st.error(course_error)
+            return
         if book is None:
             book = Book(id=str(uuid4()), isbn=isbn, title=title, authors=authors, edition=edition, cover_url=None)
         saved = copies_repo.save_book(book)
@@ -195,6 +225,8 @@ def _edit_form(user: Profile, copy) -> None:
             )
             highlighting = st.selectbox("Highlighting", HIGHLIGHTING, index=HIGHLIGHTING.index(copy.highlighting))
             notes = st.text_area("Notes", value=copy.notes or "", max_chars=500)
+            chosen_courses = _course_picker(copies_repo.book_course_ids(copy.book_id), key=f"courses_{copy.id}")
+            st.caption("Courses belong to the book, so they change for everyone who has a copy of it.")
             submitted = st.form_submit_button("Save changes")
     if not submitted:
         return
@@ -202,8 +234,13 @@ def _edit_form(user: Profile, copy) -> None:
     if not decision.allowed:
         st.error(decision.reason)
         return
+    course_ids, course_error = _course_ids(chosen_courses)
+    if course_error:
+        st.error(course_error)
+        return
     try:
         copies_repo.update_copy(copy.id, condition, highlighting, notes)
+        copies_repo.set_book_courses(copy.book_id, course_ids)
     except Exception:
         st.error("Your changes could not be saved. Please try again.")
         return
