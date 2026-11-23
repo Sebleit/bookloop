@@ -25,6 +25,10 @@ A reset happens in one transaction, so if anything fails, nothing changes:
 3. it copies the demo data in, giving each demo person's books, swaps and
    reviews to their account, and sets roles and statuses (Morgan becomes the
    moderator, Dina is under review).
+
+The demo also has 14 classmates (Afonso, Beatriz, ... Tiago) who never log in,
+so they need no account: the reset creates their profiles itself, with ids
+starting with "extra-", and replaces them at each reset.
 """
 
 import re
@@ -78,9 +82,26 @@ def build_demo_data(engine: Engine) -> None:
         reviews.seed(connection)
 
 
+NO_LOGIN = f"{base.NO_LOGIN_PREFIX}%"
+
+
 def _demo_people(demo: Connection) -> list[dict]:
+    """The demo people who log in, so they need an account online."""
     rows = demo.execute(
-        text("SELECT id, display_name, role, status FROM profiles ORDER BY display_name")
+        text(
+            "SELECT id, display_name, role, status FROM profiles "
+            "WHERE id NOT LIKE :no_login ORDER BY display_name"
+        ),
+        {"no_login": NO_LOGIN},
+    ).mappings()
+    return [dict(row) for row in rows]
+
+
+def _classmates(demo: Connection) -> list[dict]:
+    """The classmates who never log in: the reset creates their profiles."""
+    rows = demo.execute(
+        text("SELECT * FROM profiles WHERE id LIKE :no_login ORDER BY id"),
+        {"no_login": NO_LOGIN},
     ).mappings()
     return [dict(row) for row in rows]
 
@@ -120,12 +141,16 @@ def reset(demo: Engine, online: Engine) -> dict[str, int]:
     """Replace the online data with the demo data. Returns how many rows each table got."""
     with demo.connect() as source:
         people = _demo_people(source)
+        classmates = _classmates(source)
         rows = {table: [dict(row) for row in source.execute(text(f"SELECT * FROM {table}")).mappings()] for table in TABLES}
 
     with online.begin() as target:
         accounts = find_accounts(target, people)
         for table in reversed(TABLES):
             target.execute(text(f"DELETE FROM {table}"))
+        target.execute(text("DELETE FROM profiles WHERE id LIKE :no_login"), {"no_login": NO_LOGIN})
+        if classmates:
+            _insert(target, "profiles", classmates)
         for person in people:
             target.execute(
                 text("UPDATE profiles SET role = :role, status = :status WHERE id = :id"),
@@ -169,6 +194,7 @@ def reset_sql(demo: Engine, today: datetime) -> str:
     """
     with demo.connect() as source:
         people = _demo_people(source)
+        classmates = _classmates(source)
         rows = {table: [dict(row) for row in source.execute(text(f"SELECT * FROM {table}")).mappings()] for table in TABLES}
     demo_ids = {person["id"] for person in people}
 
@@ -228,12 +254,20 @@ def reset_sql(demo: Engine, today: datetime) -> str:
     lines += [
         "",
         "    -- Accounts deleted in Authentication -> Users: remove their profiles too.",
+        "    -- This also removes the classmates who never log in; they're added again below.",
         "    DELETE FROM profiles WHERE id NOT IN (SELECT id::text FROM auth.users);",
         "",
         "    UPDATE profiles p SET display_name = d.name, role = d.role, status = d.status",
         "    FROM demo_accounts d WHERE p.id = d.account_id;",
         "",
     ]
+    if classmates:
+        columns = list(classmates[0])
+        quoted = ", ".join(f'"{column}"' for column in columns)
+        values = ",\n".join(
+            "        (" + ", ".join(value(row[column]) for column in columns) + ")" for row in classmates
+        )
+        lines.append(f"    INSERT INTO profiles ({quoted}) VALUES\n{values};")
     for table in TABLES:
         if rows[table]:
             columns = list(rows[table][0])
@@ -303,7 +337,7 @@ def main(arguments: list[str]) -> int:
     print(f"Accounts linked: {len(accounts)} (Morgan is the moderator, Dina is under review).")
     print(
         f"Books: {counts['books']}, copies: {counts['copies']}, swaps: {counts['loops']}, "
-        f"reviews: {counts['reviews']}; the round \"Winter textbook swap\" is ready to run."
+        f"reviews: {counts['reviews']}; this week's round is ready to run."
     )
     return 0
 
