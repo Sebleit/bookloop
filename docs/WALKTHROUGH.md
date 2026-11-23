@@ -28,7 +28,7 @@ Each of us owned some files. Changes were made on branches and merged into `main
 `uv sync`, `uv run python seed.py`, `uv run streamlit run app.py`. Tests: `uv run pytest`. See the [README](../README.md).
 
 **How do you get the demo data onto the live app?**
-`reset_online_demo.py`. It builds the same demo data as `seed.py` and copies it into Supabase, linked to demo accounts we signed up on the live app (found by first name). It's one transaction, so if anything fails nothing changes. The demo dates follow the day of the reset, so we reset on the demo day.
+We signed up seven demo accounts on the live app (Morgan, Ana, Ben, Carla, Dina, Eli, Farah). Then `db/demo_reset.sql`, pasted into Supabase's SQL Editor, loads the same demo data as `seed.py`, linked to those accounts by first name (`reset_online_demo.py` does the same from a laptop). It's one transaction, so if anything fails nothing changes, and it moves every demo date to the day it runs.
 
 ## Listings and login
 
@@ -99,14 +99,23 @@ Each student sees only their own result: what to give, to whom, and what they'll
 **Why is the score calculated, not stored?**
 It's worked out from the reviews every time it's shown, so it can't go out of date. When a moderator hides a review, the score changes straight away.
 
-**Why are reviews blind?**
-A review stays hidden until everyone in the swap has reviewed, or 7 days pass. Otherwise someone who got a bad review could answer with a revenge review. Hidden reviews don't count in the score others see, but they do count when deciding if someone should be put under review (safety first).
+**What does a review grade?**
+Two separate things, and the form says which is which. *1. How did the swap go?* Stars for the person and the meeting: on time, polite, easy to arrange. *2. What condition did the book arrive in?* The book. Someone can hand over a perfect book but come 40 minutes late, or be lovely but overstate the condition, so one number can't grade both. Stars build the Swapper Score. The condition builds accuracy, the flags and the misdescribed-books rule.
+
+**Why don't you ask "was it as described?"**
+We used to, and it was the same question as the condition, asked twice: someone could even answer "yes, as described" and "arrived poor" for a book listed "like new". Now the app works it out: as listed or better means as described. The answers can't contradict each other, and there's one question fewer.
+
+**How does accuracy fit in?**
+Accuracy is the share of someone's books that arrived as described. It doesn't change the score; it's shown on the profile, it's needed for the Trusted badge (90%+), and 2 books worse than listed in someone's last 5 swaps put them under review.
+
+**Why are reviews blind, and can someone still take revenge?**
+A review stays hidden until everyone in the swap has reviewed, or the 14 days for reviewing are over. Since nobody can review after those 14 days, nobody can ever read a review about themselves and then answer it: no revenge reviews. Hidden reviews don't count in the score others see, but they do count when deciding if someone should be put under review (safety first).
 
 **What are the review rules?**
 Only the receiver of a completed trade can review it, once, within 14 days. 1–2 stars need a comment. Reviews can't be edited. The person reviewed can reply once. (`bookloop/rules/reviews.py`)
 
 **When is a swap flagged, and when is someone put under review?**
-A swap is flagged when the book arrives 2 or more conditions worse than listed (for example listed "like new", arrived "fair"). Someone goes under review with a score below 3.0 after 3+ reviews, or 2 misdescribed books in their last 5 swaps. While under review they can't make offers or join rounds, until a moderator clears them.
+A swap is flagged when the book arrives 2 or more conditions worse than listed (for example listed "like new", arrived "fair"). Someone goes under review with a score below 3.0 after 3+ reviews, or 2 books worse than listed in their last 5 swaps. While under review they can't make offers or join rounds, until a moderator clears them.
 
 **What are the badges?**
 New: fewer than 3 reviews. Trusted: 5+ reviews, a score of 4.5 or more and 90%+ accuracy. Under review: see above.
@@ -125,7 +134,19 @@ Supabase login online, permission checks in the rules and storage, `require_role
 **How is input validated?**
 The rules check lengths and allowed values (ISBN, condition, stars, comment length); SQL always uses parameters; the database has `CHECK` rules and foreign keys as a last line.
 
-**Where are the passwords and keys?**
+**How are users' passwords stored? Can you see them?**
+BookLoop never stores passwords: the login form passes them straight to Supabase Auth over HTTPS. Supabase keeps only a bcrypt hash, a one-way fingerprint, so nobody can read them: not us, not Supabase. At login, Supabase hashes what you type and compares the two.
+
+**What happens if someone forgets their password?**
+There's no "Forgot password?" link yet; it's a known limit. Supabase Auth can email a reset link, but its free email sender only reaches our own team, two emails an hour. With a proper email service connected, we'd add the link. Today, an administrator can give the account a new password in Supabase, and the person keeps all their books, swaps and reviews.
+
+**Why is email confirmation off?**
+For the same reason: Supabase's free sender can't email real users, so sign-up would fail. It's off for the demo; with an email service we'd turn it back on, so nobody can sign up with an address they don't own.
+
+**How does someone become a moderator?**
+Nobody can choose it when signing up: everyone starts as a student. An administrator changes their role to `moderator` in the database, so students can't give themselves admin rights.
+
+**Where are the database address and keys?**
 Only in the hosting service's secret settings. `.env` and `.streamlit/secrets.toml` are ignored by git, and the repository and its history contain no keys.
 
 **How do you keep the libraries safe?**
@@ -137,4 +158,5 @@ Few libraries, exact versions pinned in `uv.lock`, and `pip-audit` checks them f
 - Two friends could swap back and forth to boost each other's scores. *Fix: one review per pair per month.*
 - A handoff code proves people met, not that the condition was honest. *Fix: require a photo when listing.*
 - Notifications only appear inside the app. *Fix: send an email too.*
+- There's no "Forgot password?" link, and email confirmation is off for the demo. *Fix: connect an email service, add the link and turn confirmation back on.*
 - Repeated no-shows are recorded but don't lead to anything automatically. *Fix: put someone under review after 2 no-shows.*
