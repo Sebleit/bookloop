@@ -41,6 +41,7 @@ def main() -> None:
     message = st.session_state.pop(FLASH_KEY, None)
     if message:
         st.success(message)
+        st.toast(message, icon="✅")  # also pops up in the corner, wherever you've scrolled
     st.write("Your upcoming handoffs and their meeting details.")
     st.page_link("pages/6_Profile.py", label="Open your Profile to leave a review")
 

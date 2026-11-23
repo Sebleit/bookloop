@@ -77,6 +77,7 @@ def _show_flash() -> None:
     kind, text = message
     if kind == "success":
         st.success(text)
+        st.toast(text, icon="✅")  # also pops up in the corner, wherever you've scrolled
     else:
         st.error(text)
 
@@ -288,13 +289,17 @@ def _wants_section(user: Profile, round: Round, entries: list, wants: list) -> N
     by_id = {entry.info.id: entry for entry in entries}
 
     for entry in mine:
-        current = [want.wanted_entry_id for want in wants if want.entry_id == entry.info.id]
+        current = [
+            want.wanted_entry_id
+            for want in wants
+            if want.entry_id == entry.info.id and want.wanted_entry_id in labels
+        ]
         with st.form(f"wants_form_{entry.info.id}"):
             st.write(f"For your **{entry.title}**, I'd accept:")
             chosen = st.multiselect(
                 "Books",
                 options=list(labels),
-                default=[wanted for wanted in current if wanted in labels],
+                default=current,
                 format_func=labels.get,
                 label_visibility="collapsed",
             )
@@ -306,8 +311,19 @@ def _wants_section(user: Profile, round: Round, entries: list, wants: list) -> N
                 step=0.25,
             )
             submitted = st.form_submit_button("Save")
+            st.caption(_saved_wants_text(len(current), entry.info.min_partner_score))
         if submitted:
             _save_wants(user, round, entry, [by_id[wanted] for wanted in chosen], min_score)
+
+
+def _saved_wants_text(count: int, min_score: float) -> str:
+    """What is saved right now for one of my books, shown under its form."""
+    if count == 0:
+        return "Nothing saved yet: tick the books you'd accept, then click Save."
+    text = f"✅ Saved: you'd accept {count} book{'s' if count != 1 else ''}"
+    if min_score:
+        text += f", from people scoring at least {min_score:.2f}"
+    return text + ". You can change it until wants close."
 
 
 def _save_wants(user: Profile, round: Round, entry, chosen: list, min_score: float) -> None:

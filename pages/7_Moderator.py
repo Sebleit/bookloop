@@ -37,6 +37,7 @@ def _show_flash() -> None:
     kind, text = message
     if kind == "success":
         st.success(text)
+        st.toast(text, icon="✅")  # also pops up in the corner, wherever you've scrolled
     else:
         st.error(text)
 
