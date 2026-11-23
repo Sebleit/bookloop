@@ -78,9 +78,9 @@ def test_reset_gives_the_demo_data_to_the_demo_accounts(demo, online):
     assert re.fullmatch(r"\d{4}", code)  # a random 4-digit code
     # No row still points at a laptop demo user.
     assert _one(online, "SELECT count(*) FROM copies WHERE owner_id LIKE 'user-%'") == (0,)
-    # The three weekly rounds, all made by Morgan, and Ben's offer waiting for Carla.
+    # The three weekly rounds, all made by Morgan, and Leonor's offer waiting for Carla.
     assert _one(online, "SELECT count(*) FROM rounds WHERE created_by = :id", id=accounts["Morgan"]) == (3,)
-    assert _one(online, "SELECT proposer_id, status FROM offers WHERE id = 'offer-demo-ben'") == (accounts["Ben"], "pending")
+    assert _one(online, "SELECT proposer_id, status FROM offers WHERE id = 'offer-demo-leonor'") == ("extra-leonor", "pending")
 
 
 def test_reset_keeps_other_accounts_but_replaces_their_data(demo, online):
@@ -114,7 +114,7 @@ def test_reset_creates_the_classmates_who_never_log_in(demo, online):
     assert _one(online, "SELECT display_name FROM profiles WHERE id = 'extra-goncalo'") == ("Gonçalo",)
     # Their books and round entries came along.
     assert _one(online, "SELECT count(*) FROM copies WHERE owner_id LIKE 'extra-%'") == (34,)
-    assert _one(online, "SELECT count(*) FROM round_entries WHERE round_id = 'round-demo'") == (22,)
+    assert _one(online, "SELECT count(*) FROM round_entries WHERE round_id = 'round-demo'") == (23,)
     assert _one(online, "SELECT email FROM profiles WHERE id = 'extra-goncalo'") == ("goncalo@example.com",)
 
 
