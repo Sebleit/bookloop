@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from bookloop.models import Copy, Offer
-from bookloop.rules.offers import can_accept, can_cancel, can_make_offer, check_meeting, is_expired
+from bookloop.rules.offers import can_accept, can_cancel, can_make_offer, is_expired
 from bookloop.storage.swaps_repo import (
     accept_offer,
     cancel_offer,
@@ -220,27 +220,3 @@ def test_accept_offer_reserves_both_copies(database, make_user, make_copy, make_
             {"offered": offered.id, "requested": requested.id},
         ).scalars().all()
     assert statuses == ["reserved", "reserved"]
-
-
-# --- Agreeing where and when to meet ------------------------------------------
-
-NOW = datetime(2026, 11, 23, 12, 0, tzinfo=timezone.utc)
-
-
-def test_a_meeting_with_a_place_and_a_future_time_is_accepted():
-    assert check_meeting("Nova SBE library", NOW + timedelta(days=1), NOW).allowed
-
-
-def test_a_meeting_needs_a_place():
-    decision = check_meeting("   ", NOW + timedelta(days=1), NOW)
-    assert not decision.allowed and decision.reason == "Add where you'll meet."
-
-
-def test_a_meeting_in_the_past_or_right_now_is_refused():
-    assert check_meeting("Library", NOW - timedelta(minutes=1), NOW).reason == "Choose a meeting time in the future."
-    assert not check_meeting("Library", NOW, NOW).allowed  # exactly now is too late
-
-
-def test_a_meeting_place_of_100_characters_is_the_longest_allowed():
-    assert check_meeting("x" * 100, "2026-11-24T14:00:00Z", NOW).allowed
-    assert not check_meeting("x" * 101, "2026-11-24T14:00:00Z", NOW).allowed

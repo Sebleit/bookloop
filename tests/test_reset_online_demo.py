@@ -74,7 +74,8 @@ def test_reset_gives_the_demo_data_to_the_demo_accounts(demo, online):
     giver, receiver, code = _one(
         online, "SELECT giver_id, receiver_id, handoff_code FROM trades WHERE id = 'trade-demo-pending-a'"
     )
-    assert (giver, receiver, code) == (accounts["Carla"], accounts["Dina"], "3333")
+    assert (giver, receiver) == (accounts["Carla"], accounts["Dina"])
+    assert re.fullmatch(r"\d{4}", code)  # a random 4-digit code
     # No row still points at a laptop demo user.
     assert _one(online, "SELECT count(*) FROM copies WHERE owner_id LIKE 'user-%'") == (0,)
     # The three weekly rounds, all made by Morgan, and Ben's offer waiting for Carla.
@@ -112,8 +113,9 @@ def test_reset_creates_the_classmates_who_never_log_in(demo, online):
     assert _one(online, "SELECT count(*) FROM profiles WHERE id LIKE 'extra-%'") == (14,)
     assert _one(online, "SELECT display_name FROM profiles WHERE id = 'extra-goncalo'") == ("Gonçalo",)
     # Their books and round entries came along.
-    assert _one(online, "SELECT count(*) FROM copies WHERE owner_id LIKE 'extra-%'") == (22,)
-    assert _one(online, "SELECT count(*) FROM round_entries WHERE round_id = 'round-demo'") == (14,)
+    assert _one(online, "SELECT count(*) FROM copies WHERE owner_id LIKE 'extra-%'") == (34,)
+    assert _one(online, "SELECT count(*) FROM round_entries WHERE round_id = 'round-demo'") == (22,)
+    assert _one(online, "SELECT email FROM profiles WHERE id = 'extra-goncalo'") == ("goncalo@example.com",)
 
 
 def test_only_the_people_who_log_in_need_an_account(demo):
@@ -175,6 +177,13 @@ def test_the_sql_version_links_every_demo_person_to_their_account(demo):
     classmates_come = sql.index("INSERT INTO profiles")
     assert orphans_go < classmates_come
     assert "'extra-goncalo', 'Gonçalo', 'student', 'active'" in sql
+    # The email column is added if missing, hidden from the Supabase API, and filled from the accounts.
+    assert "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS email text;" in sql
+    assert "REVOKE ALL ON public.profiles FROM anon, authenticated;" in sql
+    assert "UPDATE profiles p SET email = u.email FROM auth.users u" in sql
+    # Every swap gets a new random code each time the reset runs: no fixed code is in the file.
+    assert "lpad(floor(random() * 10000)::int::text, 4, '0')" in sql
+    assert not re.search(r"'\d{4}', 0, '(pending|completed)'", sql)
 
 
 def test_the_sql_file_in_the_repo_matches_the_demo_data(demo):

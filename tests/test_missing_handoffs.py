@@ -97,7 +97,7 @@ def test_a_missing_handoff_can_be_reported_only_once_a_book_has_changed_hands():
 
 
 def test_after_a_handoff_a_no_show_is_refused_and_nothing_is_cancelled(demo):
-    swaps_repo.confirm_handoff("trade-demo-pending-a", "user-carla", "3333")
+    swaps_repo.confirm_handoff("trade-demo-pending-a", "user-carla", code_for("trade-demo-pending-a"))
 
     with pytest.raises(ValueError, match="A book has already changed hands"):
         swaps_repo.report_no_show("loop-demo-pending", "user-carla", "user-dina")
@@ -107,7 +107,7 @@ def test_after_a_handoff_a_no_show_is_refused_and_nothing_is_cancelled(demo):
 
 
 def test_a_missing_handoff_goes_to_the_moderators_and_cancels_nothing(demo):
-    swaps_repo.confirm_handoff("trade-demo-pending-a", "user-carla", "3333")
+    swaps_repo.confirm_handoff("trade-demo-pending-a", "user-carla", code_for("trade-demo-pending-a"))
 
     reviews_repo.report_missing_handoff("loop-demo-pending", "user-carla", "user-dina")
 
@@ -159,7 +159,7 @@ def _round_trades(round_id: str) -> list[Trade]:
 
 
 def test_the_picture_has_an_arrow_per_book_coloured_by_what_happened(demo):
-    swaps_repo.confirm_handoff("trade-demo-pending-a", "user-carla", "3333")
+    swaps_repo.confirm_handoff("trade-demo-pending-a", "user-carla", code_for("trade-demo-pending-a"))
 
     svg = loop_svg(rounds_repo.loop_trades("loop-demo-pending"))
 
@@ -214,7 +214,7 @@ def test_nothing_in_the_picture_can_overlap(people):
 
 
 def test_my_swaps_offers_report_a_problem_once_a_book_has_changed_hands(demo):
-    swaps_repo.confirm_handoff("trade-demo-pending-a", "user-carla", "3333")
+    swaps_repo.confirm_handoff("trade-demo-pending-a", "user-carla", code_for("trade-demo-pending-a"))
 
     app = open_app(CARLA, "pages/5_My_Swaps.py")
 
@@ -238,7 +238,7 @@ def test_before_any_handoff_my_swaps_still_offers_a_no_show(demo):
 
 
 def test_the_moderator_sees_the_report_with_the_picture_and_can_resolve_it(demo):
-    swaps_repo.confirm_handoff("trade-demo-pending-a", "user-carla", "3333")
+    swaps_repo.confirm_handoff("trade-demo-pending-a", "user-carla", code_for("trade-demo-pending-a"))
     reviews_repo.report_missing_handoff("loop-demo-pending", "user-carla", "user-dina")
 
     app = open_app(MORGAN, "pages/7_Moderator.py")
@@ -251,6 +251,10 @@ def test_the_moderator_sees_the_report_with_the_picture_and_can_resolve_it(demo)
     pictures = [text.value for text in app.markdown if text.value.startswith("<svg")]
     assert any("Swap: Carla → Dina → Carla" in picture for picture in pictures)
     assert any("Swap: Ana → Farah → Ben → Ana" in picture for picture in pictures)  # last week's, in the demo data
+    # Everyone in the swap, with their email, so the moderator can ask what happened.
+    captions = [text.value for text in app.caption]
+    assert "Everyone in this swap: Carla (carla@example.com) · Dina (dina@example.com)" in captions
+    assert "Everyone in this swap: Ana (ana@example.com) · Ben (ben@example.com) · Farah (farah@example.com)" in captions
 
     resolve = next(
         button for button in app.button
@@ -269,6 +273,6 @@ def test_the_swap_round_page_draws_the_loop_for_the_moderator(demo):
 
     assert not app.exception
     pictures = [text.value for text in app.markdown if text.value.startswith("<svg")]
-    assert len(pictures) == 4  # one for each loop
+    assert len(pictures) == 5  # one for each loop
     assert any("Swap: Ana → Farah → Eli → Ana" in picture for picture in pictures)
     assert "Green: handed over. Grey: waiting. Red: cancelled." in [text.value for text in app.caption]

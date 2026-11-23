@@ -14,7 +14,7 @@ from streamlit.testing.v1 import AppTest
 
 from bookloop import auth
 from bookloop.models import Profile
-from bookloop.storage import rounds_repo
+from bookloop.storage import reviews_repo, rounds_repo
 from seed import base as seed_base
 from seed import rounds as seed_rounds
 from seed import swaps as seed_swaps
@@ -148,14 +148,14 @@ def test_my_swaps_shows_a_pending_swap_and_confirms_the_handoff(demo_swaps):
 
     assert not app.exception
     assert [button.label for button in app.button].count("Report no-show") == 1
-    times = [text.value for text in app.markdown if text.value.startswith("Time: ")]
-    assert times and all(re.fullmatch(r"Time: \w{3} \d{2} \w{3}, \d{2}:\d{2}", time) for time in times)
+    code = reviews_repo.get_trade("trade-demo-pending-a").handoff_code  # Dina's random code
+    assert re.fullmatch(r"\d{4}", code)
 
-    app.text_input[0].input("0000")
+    app.text_input[0].input("0000" if code != "0000" else "1111")
     app = next(button for button in app.button if button.label == "Confirm handoff").click().run()
     assert [error.value for error in app.error] == ["The handoff code is incorrect."]
 
-    app.text_input[0].input("3333")
+    app.text_input[0].input(code)
     app = next(button for button in app.button if button.label == "Confirm handoff").click().run()
     assert not app.exception
     assert [message.value for message in app.success] == [
@@ -181,7 +181,7 @@ def test_in_a_round_loop_my_swaps_asks_who_did_not_come(demo_data, database):
 # --- Offers and My Swaps: who, what, and a message after every action ---------
 
 
-def test_a_student_accepts_an_offer_with_a_meeting_and_sees_who_gives_what(demo_swaps):
+def test_accepting_an_offer_shares_both_emails_to_agree_the_meeting(demo_swaps):
     from bookloop.services.notify import get_notifications
 
     carla = demo_user("user-carla", "Carla")  # the demo data has Ben's offer waiting for her
@@ -194,47 +194,64 @@ def test_a_student_accepts_an_offer_with_a_meeting_and_sees_who_gives_what(demo_
     )
     assert offer_text in [text.value for text in app.markdown]
     assert all("Swapper Score" in option for option in app.selectbox[1].options)  # the books you could ask for
-    assert app.text_input(key="place-offer-demo-ben").value == "Nova SBE library, ground floor"
+    shown = [text.value for text in app.markdown] + [text.value for text in app.caption]
+    assert "@" not in " ".join(shown)  # no email before accepting
 
-    app = next(button for button in app.button if button.label == "Accept").click().run()
+    app = next(button for button in app.button if button.label == "Accept and share my email").click().run()
 
     assert not app.exception
-    (message,) = [message.value for message in app.success]
-    assert message.startswith(
+    assert [message.value for message in app.success] == [
         "Swap agreed with Ben: you give “Business Essentials” and get “They Say / I Say”. "
-        "You meet at Nova SBE library, ground floor, "
-    )
-    assert message.endswith("14:00. The handoff is in My Swaps.")
+        "Email Ben at ben@example.com to agree where and when to meet. The handoff is in My Swaps."
+    ]
     assert app.toast[0].value.startswith("Swap agreed with Ben")
-    assert get_notifications("user-ben")[0].text.startswith("Carla accepted your offer")
+    note = get_notifications("user-ben")[0].text
+    assert note.startswith("Carla accepted your offer") and "Their email is in My Swaps" in note
 
     app.switch_page("pages/5_My_Swaps.py").run()
     headings = [header.value for header in app.subheader]
     assert headings == [
-        "You give “Automate the Boring Stuff with Python” to Dina",  # today's meeting comes first
-        "You get “A Mind for Numbers” from Dina",
-        "You give “Business Essentials” to Ben",
+        "You give “Business Essentials” to Ben",  # the newest offer comes first
         "You get “They Say / I Say” from Ben",
+        "You give “Automate the Boring Stuff with Python” to Dina",
+        "You get “A Mind for Numbers” from Dina",
     ]
-    places = [text.value for text in app.markdown if text.value.startswith("Place: ")]
-    assert places[-1] == "Place: Nova SBE library, ground floor"
+    lines = [text.value for text in app.markdown]
+    assert "Agree where and when to meet by email: **Ben** · ben@example.com" in lines
+    assert "Agree where and when to meet by email: **Dina** · dina@example.com" in lines
     assert "Show it to Ben when they give you the book." in [text.value for text in app.caption]
 
 
-def test_an_offer_is_not_accepted_with_a_meeting_in_the_past(demo_swaps):
-    from datetime import date, timedelta
-
+def test_ben_sees_carlas_email_once_she_accepts(demo_swaps):
     from bookloop.storage import swaps_repo
 
+    assert all(item["source"] != "offer" or item["giver_email"] is None
+               for item in swaps_repo.trades_for_user("user-ben"))  # nothing to share yet
     app = open_app(demo_user("user-carla", "Carla"))
     app.switch_page("pages/3_Offers.py").run()
-    app.date_input(key="day-offer-demo-ben").set_value(date.today() - timedelta(days=1))
-    app = next(button for button in app.button if button.label == "Accept").click().run()
+    next(button for button in app.button if button.label == "Accept and share my email").click().run()
+
+    ben = open_app(demo_user("user-ben", "Ben"))
+    ben.switch_page("pages/5_My_Swaps.py").run()
+
+    assert not ben.exception
+    assert "Agree where and when to meet by email: **Carla** · carla@example.com" in [
+        text.value for text in ben.markdown
+    ]
+
+
+def test_a_round_swap_shares_no_email(demo_data, database):
+    with database.begin() as connection:
+        seed_rounds.seed(connection)
+    rounds_repo.run_round("round-demo")
+
+    app = open_app(demo_user("user-ana", "Ana"))
+    app.switch_page("pages/5_My_Swaps.py").run()
 
     assert not app.exception
-    assert [error.value for error in app.error] == ["Choose a meeting time in the future."]
-    pending = [row["offer"].status for row in swaps_repo.offers_for_user("user-carla") if row["offer"].id == "offer-demo-ben"]
-    assert pending == ["pending"]  # nothing changed
+    lines = [text.value for text in app.markdown]
+    assert any(line.startswith("Place: ") for line in lines)  # the moderator's meeting
+    assert "@" not in " ".join(lines)
 
 
 def test_making_an_offer_says_who_it_went_to(demo_swaps):
