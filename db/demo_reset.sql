@@ -42,11 +42,27 @@ BEGIN
     DELETE FROM books;
 
     -- Accounts deleted in Authentication -> Users: remove their profiles too.
+    -- This also removes the classmates who never log in; they're added again below.
     DELETE FROM profiles WHERE id NOT IN (SELECT id::text FROM auth.users);
 
     UPDATE profiles p SET display_name = d.name, role = d.role, status = d.status
     FROM demo_accounts d WHERE p.id = d.account_id;
 
+    INSERT INTO profiles ("id", "display_name", "role", "status", "created_at") VALUES
+        ('extra-afonso', 'Afonso', 'student', 'active', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('extra-beatriz', 'Beatriz', 'student', 'active', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('extra-diogo', 'Diogo', 'student', 'active', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('extra-goncalo', 'Gonçalo', 'student', 'active', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('extra-hugo', 'Hugo', 'student', 'active', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('extra-ines', 'Inês', 'student', 'active', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('extra-joana', 'Joana', 'student', 'active', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('extra-leonor', 'Leonor', 'student', 'active', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('extra-marta', 'Marta', 'student', 'active', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('extra-miguel', 'Miguel', 'student', 'active', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('extra-nuno', 'Nuno', 'student', 'active', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('extra-rita', 'Rita', 'student', 'active', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('extra-sofia', 'Sofia', 'student', 'active', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('extra-tiago', 'Tiago', 'student', 'active', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'));
     INSERT INTO books ("id", "isbn", "title", "authors", "edition", "cover_url") VALUES
         ('book-01', '9780262046305', 'Introduction to Algorithms', 'Thomas H. Cormen et al.', '4th', 'https://covers.openlibrary.org/b/isbn/9780262046305-M.jpg'),
         ('book-02', '9781718502703', 'Python Crash Course', 'Eric Matthes', '3rd', 'https://covers.openlibrary.org/b/isbn/9781718502703-M.jpg'),
@@ -120,6 +136,28 @@ BEGIN
         ('copy-23', 'book-08', (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-eli'), 3, 'light', 'Pencil notes in a few chapters.', 'available', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
         ('copy-24', 'book-09', (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-farah'), 4, 'heavy', 'Bought new last term, read once.', 'available', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
         ('copy-25', 'book-10', (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-ana'), 1, 'none', NULL, 'available', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-26', 'book-10', 'extra-afonso', 3, 'none', NULL, 'in_round', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-27', 'book-13', 'extra-beatriz', 4, 'light', 'Bought new last term, read once.', 'in_round', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-28', 'book-15', 'extra-diogo', 2, 'heavy', 'Spine creased and the cover is a bit bent.', 'in_round', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-29', 'book-02', 'extra-goncalo', 3, 'none', NULL, 'in_round', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-30', 'book-07', 'extra-hugo', 4, 'light', 'Bought new last term, read once.', 'in_round', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-31', 'book-06', 'extra-ines', 3, 'none', NULL, 'in_round', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-32', 'book-01', 'extra-joana', 2, 'heavy', 'Spine creased and the cover is a bit bent.', 'in_round', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-33', 'book-09', 'extra-leonor', 3, 'none', NULL, 'in_round', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-34', 'book-03', 'extra-marta', 4, 'light', 'Bought new last term, read once.', 'in_round', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-35', 'book-12', 'extra-miguel', 3, 'none', NULL, 'in_round', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-36', 'book-05', 'extra-nuno', 2, 'heavy', 'Spine creased and the cover is a bit bent.', 'in_round', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-37', 'book-08', 'extra-rita', 3, 'none', NULL, 'in_round', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-38', 'book-04', 'extra-sofia', 4, 'light', 'Bought new last term, read once.', 'in_round', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-39', 'book-14', 'extra-tiago', 3, 'none', NULL, 'in_round', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-40', 'book-11', 'extra-joana', 3, 'none', NULL, 'available', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-41', 'book-03', 'extra-miguel', 2, 'heavy', 'Spine creased and the cover is a bit bent.', 'available', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-42', 'book-08', 'extra-sofia', 4, 'light', 'Bought new last term, read once.', 'available', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-43', 'book-02', 'extra-hugo', 1, 'light', 'Well used: the cover is loose, but every page is there.', 'available', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-44', 'book-06', 'extra-marta', 4, 'light', 'Bought new last term, read once.', 'available', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-45', 'book-13', 'extra-nuno', 3, 'none', NULL, 'available', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-46', 'book-05', 'extra-ines', 2, 'heavy', 'Spine creased and the cover is a bit bent.', 'available', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('copy-47', 'book-10', 'extra-rita', 4, 'light', 'Bought new last term, read once.', 'available', to_char(timestamp '2026-11-14 00:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
         ('copy-last-ana', 'book-10', (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-farah'), 3, 'light', NULL, 'available', to_char(timestamp '2026-11-11 10:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
         ('copy-last-ben', 'book-11', (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-ana'), 4, 'none', NULL, 'available', to_char(timestamp '2026-11-11 10:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
         ('copy-last-farah', 'book-13', (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-farah'), 3, 'none', NULL, 'reserved', to_char(timestamp '2026-11-11 10:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
@@ -160,7 +198,7 @@ BEGIN
         ('round-next', 'Weekly swap · ' || to_char(timestamp '2026-12-03 14:00:00' + shift * interval '1 day', 'FMDD Mon'), 'entries', to_char(timestamp '2026-11-29 18:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), to_char(timestamp '2026-12-02 18:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), 'Nova SBE library, ground floor', to_char(timestamp '2026-12-03 14:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-moderator'));
     INSERT INTO loops ("id", "source", "offer_id", "round_id", "status", "meet_place", "meet_time", "no_show_user_id") VALUES
         ('loop-demo-completed', 'offer', 'offer-demo-completed', NULL, 'completed', 'Main library', to_char(timestamp '2026-11-15 14:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), NULL),
-        ('loop-demo-pending', 'offer', 'offer-demo-pending', NULL, 'scheduled', 'Student centre', to_char(timestamp '2026-11-23 18:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), NULL),
+        ('loop-demo-pending', 'offer', 'offer-demo-pending', NULL, 'scheduled', 'Student centre', to_char(timestamp '2026-11-23 19:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), NULL),
         ('loop-last', 'round', NULL, 'round-last', 'scheduled', 'Nova SBE library, ground floor', to_char(timestamp '2026-11-19 14:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), NULL),
         ('loop-hist-01', 'offer', NULL, NULL, 'completed', 'Nova SBE library', to_char(timestamp '2026-10-02 14:30:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), NULL),
         ('loop-hist-02', 'offer', NULL, NULL, 'completed', 'Nova SBE library', to_char(timestamp '2026-10-03 14:30:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), NULL),
@@ -170,7 +208,7 @@ BEGIN
         ('loop-hist-06', 'offer', NULL, NULL, 'completed', 'Nova SBE library', to_char(timestamp '2026-10-07 14:30:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), NULL),
         ('loop-hist-07', 'offer', NULL, NULL, 'completed', 'Nova SBE library', to_char(timestamp '2026-10-08 14:30:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), NULL),
         ('loop-hist-08', 'offer', NULL, NULL, 'completed', 'Nova SBE library', to_char(timestamp '2026-10-09 14:30:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), NULL),
-        ('loop-demo-review', 'offer', NULL, NULL, 'completed', 'Nova SBE library', to_char(timestamp '2026-11-22 17:31:30' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), NULL);
+        ('loop-demo-review', 'offer', NULL, NULL, 'completed', 'Nova SBE library', to_char(timestamp '2026-11-22 18:43:20' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), NULL);
     INSERT INTO trades ("id", "loop_id", "copy_id", "giver_id", "receiver_id", "handoff_code", "code_attempts", "status", "completed_at") VALUES
         ('trade-demo-completed-a', 'loop-demo-completed', 'copy-01', (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-ana'), (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-ben'), '1111', 0, 'completed', to_char(timestamp '2026-11-15 14:10:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
         ('trade-demo-completed-b', 'loop-demo-completed', 'copy-02', (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-ben'), (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-ana'), '2222', 0, 'completed', to_char(timestamp '2026-11-15 14:10:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
@@ -195,25 +233,49 @@ BEGIN
         ('trade-hist-07b', 'loop-hist-07', 'copy-hist-07b', (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-farah'), (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-dina'), '0000', 0, 'completed', to_char(timestamp '2026-10-08 15:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
         ('trade-hist-08a', 'loop-hist-08', 'copy-hist-08a', (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-dina'), (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-ana'), '0000', 0, 'completed', to_char(timestamp '2026-10-09 15:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
         ('trade-hist-08b', 'loop-hist-08', 'copy-hist-08b', (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-ana'), (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-dina'), '0000', 0, 'completed', to_char(timestamp '2026-10-09 15:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
-        ('trade-demo-review-a', 'loop-demo-review', 'copy-demo-review-a', (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-eli'), (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-carla'), '0000', 0, 'completed', to_char(timestamp '2026-11-22 17:31:30' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
-        ('trade-demo-review-b', 'loop-demo-review', 'copy-demo-review-b', (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-carla'), (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-eli'), '0000', 0, 'completed', to_char(timestamp '2026-11-22 17:31:30' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'));
+        ('trade-demo-review-a', 'loop-demo-review', 'copy-demo-review-a', (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-eli'), (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-carla'), '0000', 0, 'completed', to_char(timestamp '2026-11-22 18:43:20' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+        ('trade-demo-review-b', 'loop-demo-review', 'copy-demo-review-b', (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-carla'), (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-eli'), '0000', 0, 'completed', to_char(timestamp '2026-11-22 18:43:20' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'));
     INSERT INTO round_entries ("id", "round_id", "copy_id", "min_partner_score") VALUES
         ('entry-eli', 'round-demo', 'copy-05', 0.0),
         ('entry-farah', 'round-demo', 'copy-06', 0.0),
         ('entry-ana', 'round-demo', 'copy-07', 0.0),
         ('entry-ben', 'round-demo', 'copy-08', 0.0),
+        ('entry-goncalo', 'round-demo', 'copy-29', 0.0),
+        ('entry-ines', 'round-demo', 'copy-31', 0.0),
+        ('entry-beatriz', 'round-demo', 'copy-27', 0.0),
+        ('entry-diogo', 'round-demo', 'copy-28', 0.0),
+        ('entry-leonor', 'round-demo', 'copy-33', 0.0),
+        ('entry-joana', 'round-demo', 'copy-32', 0.0),
+        ('entry-miguel', 'round-demo', 'copy-35', 0.0),
+        ('entry-sofia', 'round-demo', 'copy-38', 0.0),
+        ('entry-tiago', 'round-demo', 'copy-39', 0.0),
+        ('entry-afonso', 'round-demo', 'copy-26', 0.0),
         ('entry-last-ana', 'round-last', 'copy-last-ana', 0.0),
         ('entry-last-ben', 'round-last', 'copy-last-ben', 0.0),
         ('entry-last-farah', 'round-last', 'copy-last-farah', 0.0),
         ('entry-last-eli', 'round-last', 'copy-last-eli', 0.0),
         ('entry-next-ana', 'round-next', 'copy-19', 0.0),
         ('entry-next-ben', 'round-next', 'copy-20', 0.0),
-        ('entry-next-farah', 'round-next', 'copy-12', 0.0);
+        ('entry-next-farah', 'round-next', 'copy-12', 0.0),
+        ('entry-next-hugo', 'round-next', 'copy-30', 0.0),
+        ('entry-next-marta', 'round-next', 'copy-34', 0.0),
+        ('entry-next-nuno', 'round-next', 'copy-36', 0.0),
+        ('entry-next-rita', 'round-next', 'copy-37', 0.0);
     INSERT INTO round_wants ("entry_id", "wanted_entry_id") VALUES
         ('entry-eli', 'entry-farah'),
         ('entry-farah', 'entry-ana'),
         ('entry-ana', 'entry-eli'),
         ('entry-ben', 'entry-eli'),
+        ('entry-goncalo', 'entry-ines'),
+        ('entry-ines', 'entry-goncalo'),
+        ('entry-beatriz', 'entry-diogo'),
+        ('entry-diogo', 'entry-leonor'),
+        ('entry-leonor', 'entry-beatriz'),
+        ('entry-joana', 'entry-miguel'),
+        ('entry-miguel', 'entry-sofia'),
+        ('entry-sofia', 'entry-tiago'),
+        ('entry-tiago', 'entry-joana'),
+        ('entry-afonso', 'entry-goncalo'),
         ('entry-last-ana', 'entry-last-ben'),
         ('entry-last-ben', 'entry-last-farah'),
         ('entry-last-farah', 'entry-last-ana'),
@@ -227,7 +289,7 @@ BEGIN
         ('review-hist-06', 'trade-hist-06a', (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-eli'), (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-dina'), 1, 0, 1, 'Listed as like new, but pages were missing and there were coffee stains.', 'The pages were already loose when I got it. Sorry, I should have said so.', to_char(timestamp '2026-10-07 20:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), 0, NULL, to_char(timestamp '2026-10-07 20:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
         ('review-hist-07', 'trade-hist-07a', (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-farah'), (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-dina'), 2, 0, 1, 'Heavy highlighting on almost every page, not mentioned in the listing.', NULL, to_char(timestamp '2026-10-08 20:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), 0, NULL, to_char(timestamp '2026-10-08 20:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
         ('review-hist-08', 'trade-hist-08a', (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-ana'), (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-dina'), 2, 1, 3, 'Book was fine, but she was 40 minutes late.', NULL, to_char(timestamp '2026-10-09 20:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), 0, NULL, to_char(timestamp '2026-10-09 20:00:00' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
-        ('review-demo-eli', 'trade-demo-review-b', (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-eli'), (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-carla'), 5, 1, 3, 'Exactly as described.', NULL, to_char(timestamp '2026-12-06 17:31:31' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), 0, NULL, to_char(timestamp '2026-11-22 19:31:30' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'));
+        ('review-demo-eli', 'trade-demo-review-b', (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-eli'), (SELECT account_id FROM demo_accounts WHERE demo_id = 'user-carla'), 5, 1, 3, 'Exactly as described.', NULL, to_char(timestamp '2026-12-06 18:43:21' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), 0, NULL, to_char(timestamp '2026-11-22 20:43:20' + shift * interval '1 day', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'));
     INSERT INTO entity_ids ("table_name", "entity_key") VALUES
         ('trades', 'trade-last-farah'),
         ('trades', 'trade-hist-06a'),
