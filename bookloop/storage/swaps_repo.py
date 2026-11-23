@@ -66,8 +66,10 @@ def available_copies(
         rows = connection.execute(
             text(
                 "SELECT c.id, c.book_id, c.owner_id, c.\"condition\", c.highlighting, "
-                "c.notes, c.status, c.created_at, b.title, b.authors, p.display_name AS owner_name "
-                "FROM copies c JOIN books b ON b.id = c.book_id JOIN profiles p ON p.id = c.owner_id "
+                "c.notes, c.status, c.created_at, b.title, b.authors, "
+                "p.display_name AS owner_name "
+                "FROM copies c JOIN books b ON b.id = c.book_id "
+                "JOIN profiles p ON p.id = c.owner_id "
                 "WHERE c.status = 'available' "
                 f"{owner_filter} {exclude_filter} "
                 "ORDER BY b.title, c.id"
@@ -76,7 +78,12 @@ def available_copies(
         ).mappings().all()
 
     return [
-        {"copy": _copy_from_row(row), "title": row["title"], "authors": row["authors"], "owner_name": row["owner_name"]}
+        {
+            "copy": _copy_from_row(row),
+            "title": row["title"],
+            "authors": row["authors"],
+            "owner_name": row["owner_name"],
+        }
         for row in rows
     ]
 
