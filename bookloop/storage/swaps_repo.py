@@ -67,8 +67,8 @@ def available_copies(
         rows = connection.execute(
             text(
                 "SELECT c.id, c.book_id, c.owner_id, c.\"condition\", c.highlighting, "
-                "c.notes, c.status, c.created_at, b.title, b.authors "
-                "FROM copies c JOIN books b ON b.id = c.book_id "
+                "c.notes, c.status, c.created_at, b.title, b.authors, p.display_name AS owner_name "
+                "FROM copies c JOIN books b ON b.id = c.book_id JOIN profiles p ON p.id = c.owner_id "
                 "WHERE c.status = 'available' "
                 f"{owner_filter} {exclude_filter} "
                 "ORDER BY b.title, c.id"
@@ -77,7 +77,7 @@ def available_copies(
         ).mappings().all()
 
     return [
-        {"copy": _copy_from_row(row), "title": row["title"], "authors": row["authors"]}
+        {"copy": _copy_from_row(row), "title": row["title"], "authors": row["authors"], "owner_name": row["owner_name"]}
         for row in rows
     ]
 
@@ -153,12 +153,15 @@ def offers_for_user(user_id: str) -> list[dict[str, Any]]:
                 "SELECT o.id, o.proposer_id, o.offered_copy_id, o.requested_copy_id, "
                 "o.status, o.created_at, o.expires_at, "
                 "offered_book.title AS offered_title, requested_book.title AS requested_title, "
-                "requested_copy.owner_id AS requested_owner_id "
+                "requested_copy.owner_id AS requested_owner_id, "
+                "proposer.display_name AS proposer_name, requested_owner.display_name AS requested_owner_name "
                 "FROM offers o "
+                "JOIN profiles proposer ON proposer.id = o.proposer_id "
                 "JOIN copies offered_copy ON offered_copy.id = o.offered_copy_id "
                 "JOIN books offered_book ON offered_book.id = offered_copy.book_id "
                 "JOIN copies requested_copy ON requested_copy.id = o.requested_copy_id "
                 "JOIN books requested_book ON requested_book.id = requested_copy.book_id "
+                "JOIN profiles requested_owner ON requested_owner.id = requested_copy.owner_id "
                 "WHERE o.proposer_id = :user_id OR requested_copy.owner_id = :user_id "
                 "ORDER BY o.created_at DESC, o.id DESC"
             ),
@@ -185,6 +188,8 @@ def offers_for_user(user_id: str) -> list[dict[str, Any]]:
                 "offered_title": row["offered_title"],
                 "requested_title": row["requested_title"],
                 "requested_owner_id": row["requested_owner_id"],
+                "proposer_name": row["proposer_name"],
+                "requested_owner_name": row["requested_owner_name"],
             }
         )
     return offers
@@ -474,14 +479,20 @@ def trades_for_user(user_id: str) -> list[dict[str, Any]]:
             text(
                 "SELECT t.id, t.loop_id, t.copy_id, t.giver_id, t.receiver_id, "
                 "t.handoff_code, t.code_attempts, t.status, t.completed_at, "
-                "l.meet_place, l.meet_time, b.title "
+                "l.meet_place, l.meet_time, b.title, "
+                "giver.display_name AS giver_name, receiver.display_name AS receiver_name "
                 "FROM trades t "
                 "JOIN loops l ON l.id = t.loop_id "
+                "JOIN profiles giver ON giver.id = t.giver_id "
+                "JOIN profiles receiver ON receiver.id = t.receiver_id "
                 "JOIN copies c ON c.id = t.copy_id "
                 "JOIN books b ON b.id = c.book_id "
                 "WHERE (t.giver_id = :user_id OR t.receiver_id = :user_id) "
                 "AND t.status = 'pending' AND l.status = 'scheduled' "
-                "ORDER BY l.meet_time, t.id"
+                # Swaps with a meeting time first, soonest first; "to be arranged" ones last.
+                # In each swap, the book you give comes before the one you get.
+                "ORDER BY CASE WHEN l.meet_time IS NULL THEN 1 ELSE 0 END, l.meet_time, t.loop_id, "
+                "CASE WHEN t.giver_id = :user_id THEN 0 ELSE 1 END, t.id"
             ),
             {"user_id": user_id},
         ).mappings().all()
@@ -492,6 +503,8 @@ def trades_for_user(user_id: str) -> list[dict[str, Any]]:
             "meet_place": row["meet_place"],
             "meet_time": row["meet_time"],
             "title": row["title"],
+            "giver_name": row["giver_name"],
+            "receiver_name": row["receiver_name"],
         }
         for row in rows
     ]

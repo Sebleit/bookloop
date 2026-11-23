@@ -65,13 +65,19 @@ def main() -> None:
     swaps_with_button = set()
     for item in swaps:
         trade = item["trade"]
-        st.subheader(item["title"])
+        if trade.giver_id == user.id:
+            st.subheader(f"You give “{item['title']}” to {item['receiver_name']}")
+        else:
+            st.subheader(f"You get “{item['title']}” from {item['giver_name']}")
         st.write(f"Place: {item['meet_place'] or 'To be arranged'}")
         st.write(f"Time: {_show_time(item['meet_time'])}")
+        if not item["meet_place"] and not item["meet_time"]:
+            st.caption("A direct swap: agree where and when to meet with the other person.")
 
         if trade.receiver_id == user.id:
+            st.write("Your code:")
             st.code(trade.handoff_code, language="text")
-            st.caption("Show this code to the person giving you the book.")
+            st.caption(f"Show it to {item['giver_name']} when they give you the book.")
         elif trade.giver_id == user.id:
             with st.form(f"handoff-{trade.id}"):
                 entered_code = st.text_input("Receiver's 4-digit code")
