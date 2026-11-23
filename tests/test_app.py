@@ -176,3 +176,53 @@ def test_in_a_round_loop_my_swaps_asks_who_did_not_come(demo_data, database):
     (who,) = app.selectbox
     assert who.options == ["Eli", "Farah"]
     assert [button.label for button in app.button].count("Report no-show") == 1
+
+
+# --- Offers and My Swaps: who, what, and a message after every action ---------
+
+
+def test_a_student_accepts_an_offer_and_sees_who_gives_what(demo_swaps):
+    from bookloop.storage import swaps_repo
+
+    swaps_repo.create_offer("user-ben", "copy-14", "copy-15", "2099-01-01T00:00:00Z")
+    carla = demo_user("user-carla", "Carla")
+
+    app = open_app(carla)
+    app.switch_page("pages/3_Offers.py").run()
+    assert not app.exception
+    offer_text = "**Ben** offers you “They Say / I Say” for your “Business Essentials” · waiting for an answer"
+    assert offer_text in [text.value for text in app.markdown]
+    assert any(option.endswith("from Ben") for option in app.selectbox[1].options)
+
+    app = next(button for button in app.button if button.label == "Accept").click().run()
+
+    assert not app.exception
+    assert [message.value for message in app.success] == [
+        "Swap agreed with Ben: you give “Business Essentials” and get “They Say / I Say”. "
+        "Agree where and when to meet; the handoff is in My Swaps."
+    ]
+    assert app.toast[0].value.startswith("Swap agreed with Ben")
+    app.switch_page("pages/5_My_Swaps.py").run()
+    headings = [header.value for header in app.subheader]
+    assert headings == [
+        "You give “Automate the Boring Stuff with Python” to Dina",  # the swap with a time comes first
+        "You get “A Mind for Numbers” from Dina",
+        "You give “Business Essentials” to Ben",
+        "You get “They Say / I Say” from Ben",
+    ]
+    assert "Show it to Ben when they give you the book." in [text.value for text in app.caption]
+
+
+def test_making_an_offer_says_who_it_went_to(demo_swaps):
+    carla = demo_user("user-carla", "Carla")
+    app = open_app(carla)
+    app.switch_page("pages/3_Offers.py").run()
+
+    yours, theirs = app.selectbox[0], app.selectbox[1]
+    assert all(" from " not in option for option in yours.options)  # your own books
+    assert all(" from " in option for option in theirs.options)  # everyone else's, with the owner
+    app = next(button for button in app.button if button.label == "Make offer").click().run()
+
+    assert not app.exception
+    (message,) = app.success
+    assert message.value.startswith("Offer sent to ") and message.value.endswith("They have 72 hours to answer.")

@@ -695,3 +695,38 @@ def test_saved_wants_line_says_when_nothing_is_saved_and_shows_the_minimum_score
         "✅ Saved: you'd accept 3 books, from people scoring at least 4.00. "
         "You can change it until wants close."
     )
+
+
+def test_the_page_keeps_showing_a_round_after_it_runs(database):
+    load_demo_data(database)
+    moderator = seed_profile("user-moderator", "Morgan", role="moderator")
+    newer = rounds_repo.create_round(
+        "Next week", "2099-01-01T18:00:00Z", "2099-01-03T18:00:00Z", "Library", "2099-01-04T14:00:00Z", moderator.id
+    )
+
+    page = open_page(moderator)
+    (menu,) = page.selectbox
+    assert menu.value == newer.id  # the newest round comes first
+    page = menu.set_value("round-demo").run()
+    page = next(button for button in page.button if button.label == "Run round").click().run()
+
+    assert not page.exception
+    assert page.selectbox[0].value == "round-demo"  # still the round that just ran, now matched
+    assert "This round created 1 loop." in [text.value for text in page.markdown]
+    assert any(text.value.startswith("<svg") for text in page.markdown)  # with its picture
+
+
+def test_a_moderator_sees_the_round_they_just_created(database):
+    load_demo_data(database)
+    moderator = seed_profile("user-moderator", "Morgan", role="moderator")
+
+    page = open_page(moderator)
+    form_inputs = [box for box in page.text_input if box.label in ("Name", "Meeting place")]
+    form_inputs[0].input("Next week")
+    form_inputs[1].input("Library")
+    page = next(button for button in page.button if button.label == "Create round").click().run()
+
+    assert not page.exception
+    assert page.success[0].value == "Round “Next week” created. Students can now enter books."
+    created = next(item for item in rounds_repo.list_rounds() if item.name == "Next week")
+    assert page.selectbox[0].value == created.id
