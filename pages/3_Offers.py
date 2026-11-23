@@ -1,10 +1,10 @@
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 import streamlit as st
 
 from bookloop import auth
 from bookloop.rules.copies import CONDITIONS
-from bookloop.rules.offers import can_make_offer, check_meeting
+from bookloop.rules.offers import can_make_offer
 from bookloop.services.notify import notify
 from bookloop.storage.reviews_repo import is_blocked, swapper_score
 from bookloop.storage.swaps_repo import (
@@ -15,6 +15,7 @@ from bookloop.storage.swaps_repo import (
     decline_offer,
     offers_for_user,
     pending_offer_count,
+    trades_for_user,
 )
 
 
@@ -27,9 +28,6 @@ STATUS_WORDS = {
     "cancelled": "cancelled",
     "expired": "expired after 72 hours",
 }
-
-
-DEFAULT_PLACE = "Nova SBE library, ground floor"
 
 
 def _my_copy_label(item: dict) -> str:
@@ -45,28 +43,6 @@ def _score_text(user_id: str, scores: dict[str, float | None]) -> str:
             scores[user_id] = None
     value = scores[user_id]
     return "Swapper Score unknown" if value is None else f"Swapper Score {value:.2f}"
-
-
-def _local_zone():
-    """Lisbon time if this computer knows it, otherwise UTC (the same in winter)."""
-    try:
-        from zoneinfo import ZoneInfo
-
-        return ZoneInfo("Europe/Lisbon")
-    except Exception:
-        return timezone.utc
-
-
-def _to_utc_text(day: date, clock: time) -> str:
-    """A day and time typed in Lisbon time, as the UTC timestamp the database keeps."""
-    moment = datetime.combine(day, clock, tzinfo=_local_zone()).astimezone(timezone.utc)
-    return moment.isoformat().replace("+00:00", "Z")
-
-
-def _show_time(value: str) -> str:
-    """'Tue 24 Nov, 14:00' in Lisbon time."""
-    moment = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(_local_zone())
-    return moment.strftime("%a %d %b, %H:%M")
 
 
 def _flash(message: str) -> None:
@@ -111,6 +87,10 @@ def _make_offer_form(user, my_copies: list, requested_copies: list, scores: dict
         offered_item = st.selectbox("Your book", my_copies, format_func=_my_copy_label)
         requested_item = st.selectbox(
             "The book you want", requested_copies, format_func=their_copy_label
+        )
+        st.caption(
+            "If they accept, you'll both see each other's email in My Swaps, "
+            "to agree where and when to meet."
         )
         submitted = st.form_submit_button("Make offer")
     if not submitted:
@@ -185,24 +165,27 @@ def _show_existing_offers(user, scores: dict) -> None:
                     _flash("Offer cancelled.")
 
 
+def _partner_email(user_id: str, loop_id: str) -> str | None:
+    """The other person's email in a direct swap you're in (from My Swaps' data)."""
+    for item in trades_for_user(user_id):
+        trade = item["trade"]
+        if trade.loop_id == loop_id:
+            return item["receiver_email"] if trade.giver_id == user_id else item["giver_email"]
+    return None
+
+
 def _answer_offer(user, row: dict) -> None:
-    """Accept (saying where and when to meet) or decline an offer made to you."""
+    """Accept (sharing both emails, to agree where and when to meet) or decline an offer."""
     offer = row["offer"]
-    with st.form(f"accept-{offer.id}"):
-        st.caption("To accept, say where and when you'll meet. Both of you will see it in My Swaps.")
-        place = st.text_input("Meeting place", value=DEFAULT_PLACE, key=f"place-{offer.id}")
-        col1, col2 = st.columns(2)
-        day = col1.date_input("Day", value=date.today() + timedelta(days=1), key=f"day-{offer.id}")
-        clock = col2.time_input("Time (Lisbon)", value=time(14, 0), key=f"time-{offer.id}")
-        accepted = st.form_submit_button("Accept")
-    declined = st.button("Decline", key=f"decline-{offer.id}")
+    st.caption(
+        f"Accepting shares your email with {row['proposer_name']} and theirs with you, "
+        "so you can agree where and when to meet."
+    )
+    col1, col2 = st.columns(2)
+    accepted = col1.button("Accept and share my email", key=f"accept-{offer.id}")
+    declined = col2.button("Decline", key=f"decline-{offer.id}")
 
     if accepted:
-        meet_time = _to_utc_text(day, clock)
-        decision = check_meeting(place, meet_time)
-        if not decision.allowed:
-            st.error(decision.reason)
-            return
         try:
             offered_copy = next(
                 item["copy"]
@@ -214,23 +197,28 @@ def _answer_offer(user, row: dict) -> None:
                 for item in available_copies(owner_id=user.id)
                 if item["copy"].id == offer.requested_copy_id
             )
-            accept_offer(offer, user.id, offered_copy, requested_copy, place.strip(), meet_time)
+            loop = accept_offer(offer, user.id, offered_copy, requested_copy)
         except StopIteration:
             st.error("One of these books isn't available any more.")
             return
         except Exception as error:
             st.error(str(error))
             return
-        when = f"{place.strip()}, {_show_time(meet_time)}"
+        try:
+            email = _partner_email(user.id, loop.id)
+        except Exception:
+            email = None
+        write_to = f"Email {row['proposer_name']} at {email}" if email else f"Email {row['proposer_name']}"
         notify(
             offer.proposer_id,
             f"{user.display_name} accepted your offer: your “{row['offered_title']}” for their "
-            f"“{row['requested_title']}”. You meet at {when}. The handoff is in My Swaps.",
+            f"“{row['requested_title']}”. Their email is in My Swaps: agree where and when to meet.",
             None,
         )
         _flash(
             f"Swap agreed with {row['proposer_name']}: you give “{row['requested_title']}” and get "
-            f"“{row['offered_title']}”. You meet at {when}. The handoff is in My Swaps."
+            f"“{row['offered_title']}”. {write_to} to agree where and when to meet. "
+            "The handoff is in My Swaps."
         )
     elif declined:
         try:

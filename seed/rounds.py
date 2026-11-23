@@ -5,18 +5,19 @@ Rounds run every week, so the demo can show every step without waiting:
 - Last week's round has run: Ben, Ana and Farah met, Ben's and Ana's books
   changed hands, but Farah didn't hand over hers, and Ben reported it. The
   moderator sees it under "Books not handed over". Eli's book had no match.
-- This week's round is ready to run, with 14 books. Eli, Farah and Ana each
-  want the next person's book, but no two of them want each other's, so no
-  direct swap is possible. When the moderator runs it, the loop finder finds
-  the 3-way loop: Eli gets Farah's book, Farah gets Ana's, and Ana gets Eli's.
-  Ben also wants Eli's book, but nobody wants Ben's, so his book goes back on
-  his shelf. Their classmates make three more loops: Gonçalo and Inês swap
-  directly, Beatriz, Diogo and Leonor make a 3-way loop, and Joana, Miguel,
-  Sofia and Tiago a 4-way one. Afonso wants Gonçalo's book, but nobody wants
-  Afonso's. So: 4 loops, 12 books change hands, 2 go back on the shelf.
-- Next week's round is open for books: seven are in already, so a student can
-  enter theirs, the moderator can close entries, and everyone can tick what
-  they'd accept.
+- This week's round is ready to run: 22 books from 14 students, since some
+  put in two. Eli, Farah and Ana each want the next person's book, but no two
+  of them want each other's, so no direct swap is possible. When the
+  moderator runs it, the loop finder finds the 3-way loop: Eli gets Farah's
+  book, Farah gets Ana's, and Ana gets Eli's. Ben also wants Eli's book, but
+  nobody wants Ben's, so his book goes back on his shelf. Their classmates
+  make four more loops: Gonçalo and Inês swap directly, Beatriz, Diogo and
+  Leonor make a 3-way loop, Joana, Miguel, Sofia and Tiago a 4-way one, and
+  Joana's, Miguel's and Sofia's second books another 3-way one. So: 5 loops,
+  15 books change hands, 7 go back on the shelf.
+- Next week's round is open for books: 11 are in already, from 7 students, so
+  a student can enter theirs, the moderator can close entries, and everyone
+  can tick what they'd accept.
 
 Each round is named after its handoff day ("Weekly swap · 26 Nov"). The dates
 follow the day the demo data is built, so they never look out of date,
@@ -28,6 +29,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from bookloop.rules.handoffs import new_code
 from bookloop.storage.reviews_repo import MISSING_HANDOFF
 
 PLACE = "Nova SBE library, ground floor"
@@ -55,6 +57,15 @@ ENTRIES = (
     ("entry-sofia", "round-demo", "copy-38"),  # Sofia: A Mind for Numbers
     ("entry-tiago", "round-demo", "copy-39"),  # Tiago: They Say / I Say
     ("entry-afonso", "round-demo", "copy-26"),  # Afonso: Biology
+    # Second books in this week's round.
+    ("entry-joana-2", "round-demo", "copy-40"),  # Joana: Chemistry: The Central Science
+    ("entry-miguel-2", "round-demo", "copy-41"),  # Miguel: Automate the Boring Stuff with Python
+    ("entry-sofia-2", "round-demo", "copy-42"),  # Sofia: World History: Patterns of Interaction
+    ("entry-ines-2", "round-demo", "copy-46"),  # Inês: Calculus: Early Transcendentals
+    ("entry-beatriz-2", "round-demo", "copy-48"),  # Beatriz: Calculus: Early Transcendentals
+    ("entry-diogo-2", "round-demo", "copy-49"),  # Diogo: The Economics Book
+    ("entry-goncalo-2", "round-demo", "copy-50"),  # Gonçalo: Chemistry: The Central Science
+    ("entry-afonso-2", "round-demo", "copy-51"),  # Afonso: They Say / I Say
     ("entry-last-ana", "round-last", "copy-last-ana"),
     ("entry-last-ben", "round-last", "copy-last-ben"),
     ("entry-last-farah", "round-last", "copy-last-farah"),
@@ -66,6 +77,10 @@ ENTRIES = (
     ("entry-next-marta", "round-next", "copy-34"),  # Marta: Automate the Boring Stuff with Python
     ("entry-next-nuno", "round-next", "copy-36"),  # Nuno: Calculus: Early Transcendentals
     ("entry-next-rita", "round-next", "copy-37"),  # Rita: World History: Patterns of Interaction
+    ("entry-next-hugo-2", "round-next", "copy-43"),  # Hugo: Python Crash Course
+    ("entry-next-marta-2", "round-next", "copy-44"),  # Marta: Principles of Economics
+    ("entry-next-nuno-2", "round-next", "copy-45"),  # Nuno: Psychology
+    ("entry-next-rita-2", "round-next", "copy-47"),  # Rita: Biology
 )
 
 # (entry, wanted entry): "I'd accept that book in return for mine".
@@ -84,6 +99,18 @@ WANTS = (
     ("entry-sofia", "entry-tiago"),
     ("entry-tiago", "entry-joana"),
     ("entry-afonso", "entry-goncalo"),  # nobody wants Afonso's book: no match
+    ("entry-joana-2", "entry-miguel-2"),  # second books: another 3-way loop
+    ("entry-miguel-2", "entry-sofia-2"),
+    ("entry-sofia-2", "entry-joana-2"),
+    # Second books nobody wants: they go back on the shelf.
+    ("entry-ines-2", "entry-leonor"),
+    ("entry-beatriz-2", "entry-farah"),
+    ("entry-goncalo-2", "entry-tiago"),
+    ("entry-afonso-2", "entry-ines-2"),
+    # Some people tick more than one book. Diogo's second book is wanted, but
+    # Diogo ticked nothing for it, so it can't be in a loop.
+    ("entry-leonor", "entry-diogo-2"),
+    ("entry-tiago", "entry-diogo-2"),
     ("entry-last-ana", "entry-last-ben"),
     ("entry-last-ben", "entry-last-farah"),
     ("entry-last-farah", "entry-last-ana"),
@@ -98,11 +125,11 @@ LAST_COPIES = (
     ("copy-last-eli", "book-01", 2, "heavy", "user-eli", "user-eli", "available"),  # no match: back on the shelf
 )
 
-# Last week's loop: (trade, copy, giver, receiver, code, handed over).
+# Last week's loop: (trade, copy, giver, receiver, handed over). Codes are random.
 LAST_TRADES = (
-    ("trade-last-ben", "copy-last-ben", "user-ben", "user-ana", "5151", True),
-    ("trade-last-ana", "copy-last-ana", "user-ana", "user-farah", "5252", True),
-    ("trade-last-farah", "copy-last-farah", "user-farah", "user-ben", "5353", False),
+    ("trade-last-ben", "copy-last-ben", "user-ben", "user-ana", True),
+    ("trade-last-ana", "copy-last-ana", "user-ana", "user-farah", True),
+    ("trade-last-farah", "copy-last-farah", "user-farah", "user-ben", False),
 )
 
 
@@ -194,10 +221,10 @@ def _seed_last_weeks_swap(connection: Connection, last: dict, today: datetime) -
             ":receiver, :code, 0, :status, :done)"
         ),
         [
-            {"id": trade_id, "copy": copy_id, "giver": giver, "receiver": receiver, "code": code,
+            {"id": trade_id, "copy": copy_id, "giver": giver, "receiver": receiver, "code": new_code(),
              "status": "completed" if done else "pending",
              "done": _as_text(met + timedelta(minutes=10)) if done else None}
-            for trade_id, copy_id, giver, receiver, code, done in LAST_TRADES
+            for trade_id, copy_id, giver, receiver, done in LAST_TRADES
         ],
     )
     # Ben reports that Farah didn't hand over her book: the moderator checks it.
