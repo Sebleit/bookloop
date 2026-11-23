@@ -384,6 +384,47 @@ def my_trades(round_id: str, user_id: str) -> list[MyTrade]:
     return [MyTrade(**row) for row in rows]
 
 
+def loops_in_round(round_id: str) -> list[list[MyTrade]]:
+    """Every loop the round created, each as its trades in order around the circle."""
+    with transaction() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT t.loop_id, b.title, t.giver_id, g.display_name AS giver_name, t.receiver_id, "
+                "r.display_name AS receiver_name, t.status, l.meet_place, l.meet_time "
+                "FROM trades t "
+                "JOIN loops l ON l.id = t.loop_id "
+                "JOIN copies c ON c.id = t.copy_id "
+                "JOIN books b ON b.id = c.book_id "
+                "JOIN profiles g ON g.id = t.giver_id "
+                "JOIN profiles r ON r.id = t.receiver_id "
+                "WHERE l.round_id = :round_id "
+                "ORDER BY l.id, t.id"
+            ),
+            {"round_id": round_id},
+        ).mappings().all()
+
+    by_loop: dict[str, list[MyTrade]] = {}
+    for row in rows:
+        values = dict(row)
+        by_loop.setdefault(values.pop("loop_id"), []).append(MyTrade(**values))
+    return [_around_the_circle(trades) for trades in by_loop.values()]
+
+
+def _around_the_circle(trades: list[MyTrade]) -> list[MyTrade]:
+    """Put a loop's trades in order, so each person who receives a book gives the next one.
+
+    It starts with the giver whose name comes first, so the same loop always reads the same.
+    """
+    by_giver = {trade.giver_id: trade for trade in trades}
+    ordered = [min(trades, key=lambda trade: (trade.giver_name, trade.giver_id))]
+    while len(ordered) < len(trades):
+        following = by_giver.get(ordered[-1].receiver_id)
+        if following is None or following in ordered:
+            return trades  # not a clean circle: keep the order they were saved in
+        ordered.append(following)
+    return ordered
+
+
 def traded_copy_ids(round_id: str) -> set[str]:
     """Every book that changes hands in this round's loops."""
     with transaction() as connection:
