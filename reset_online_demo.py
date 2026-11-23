@@ -145,6 +145,15 @@ def reset(demo: Engine, online: Engine) -> dict[str, int]:
         rows = {table: [dict(row) for row in source.execute(text(f"SELECT * FROM {table}")).mappings()] for table in TABLES}
 
     with online.begin() as target:
+        if target.dialect.name == "postgresql":
+            # Databases made before profiles had an email column get it here, hidden from
+            # the Supabase API (the same lock as db/supabase_only.sql).
+            target.execute(text("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS email TEXT"))
+            if target.execute(text("SELECT to_regrole('anon') IS NOT NULL AND to_regrole('authenticated') IS NOT NULL")).scalar():
+                target.execute(text("REVOKE ALL ON public.profiles FROM anon, authenticated"))
+                target.execute(text(
+                    "GRANT SELECT (id, display_name, role, status, created_at) ON public.profiles TO authenticated"
+                ))
         accounts = find_accounts(target, people)
         for table in reversed(TABLES):
             target.execute(text(f"DELETE FROM {table}"))
@@ -165,7 +174,18 @@ def reset(demo: Engine, online: Engine) -> dict[str, int]:
                     for row in rows[table]
                 ]
                 _insert(target, table, linked)
+        if target.dialect.name == "postgresql" and target.execute(text("SELECT to_regclass('auth.users')")).scalar():
+            target.execute(text(EMAILS_FROM_ACCOUNTS))
     return {table: len(rows[table]) for table in TABLES}
+
+
+# Each profile keeps the email of its Supabase account (Supabase only).
+EMAILS_FROM_ACCOUNTS = (
+    "UPDATE profiles p SET email = u.email FROM auth.users u "
+    "WHERE p.id = u.id::text AND p.email IS DISTINCT FROM u.email"
+)
+# A new random 4-digit handoff code for each swap, each time the reset runs.
+RANDOM_CODE = "lpad(floor(random() * 10000)::int::text, 4, '0')"
 
 
 # --- The same reset as SQL, for Supabase's SQL Editor ----------------------
@@ -224,13 +244,19 @@ def reset_sql(demo: Engine, today: datetime) -> str:
         "-- BookLoop: reset the online demo data. Paste all of it into Supabase -> SQL Editor -> Run.",
         "-- It's one block: if anything fails, nothing changes. It works on any day: every demo",
         "-- date moves to the day it runs. It also removes the profiles of accounts deleted in",
-        "-- Authentication -> Users. Made by: uv run python reset_online_demo.py --sql db/demo_reset.sql",
+        "-- Authentication -> Users, and gives every swap a new random handoff code.",
+        "-- Made by: uv run python reset_online_demo.py --sql db/demo_reset.sql",
         f"-- It needs one account for each of these first names: {names}.",
         "DO $reset$",
         "DECLARE",
         "    problem text;",
         f"    shift integer := (now() AT TIME ZONE 'UTC')::date - date '{today:%Y-%m-%d}';",
         "BEGIN",
+        "    -- Databases made before profiles had an email column get it here, hidden from",
+        "    -- the Supabase API: a logged-in user reads only these columns of their own profile.",
+        "    ALTER TABLE profiles ADD COLUMN IF NOT EXISTS email text;",
+        "    REVOKE ALL ON public.profiles FROM anon, authenticated;",
+        "    GRANT SELECT (id, display_name, role, status, created_at) ON public.profiles TO authenticated;",
         "    CREATE TEMP TABLE demo_accounts (demo_id text PRIMARY KEY, name text, role text, status text, "
         "account_id text) ON COMMIT DROP;",
         "    INSERT INTO demo_accounts (demo_id, name, role, status) VALUES",
@@ -259,6 +285,8 @@ def reset_sql(demo: Engine, today: datetime) -> str:
         "",
         "    UPDATE profiles p SET display_name = d.name, role = d.role, status = d.status",
         "    FROM demo_accounts d WHERE p.id = d.account_id;",
+        "    -- Each profile keeps its account's email (shown only in direct swaps and to moderators).",
+        f"    {EMAILS_FROM_ACCOUNTS};",
         "",
     ]
     if classmates:
@@ -275,7 +303,9 @@ def reset_sql(demo: Engine, today: datetime) -> str:
             values = ",\n".join(
                 "        ("
                 + ", ".join(
-                    round_name(row) if (table, column) == ("rounds", "name") else value(row[column])
+                    round_name(row) if (table, column) == ("rounds", "name")
+                    else RANDOM_CODE if (table, column) == ("trades", "handoff_code")
+                    else value(row[column])
                     for column in columns
                 )
                 + ")"
