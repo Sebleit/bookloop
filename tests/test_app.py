@@ -184,12 +184,12 @@ def test_in_a_round_loop_my_swaps_asks_who_did_not_come(demo_data, database):
 def test_accepting_an_offer_shares_both_emails_to_agree_the_meeting(demo_swaps):
     from bookloop.services.notify import get_notifications
 
-    carla = demo_user("user-carla", "Carla")  # the demo data has Ben's offer waiting for her
+    carla = demo_user("user-carla", "Carla")  # the demo data has Leonor's offer waiting for her
     app = open_app(carla)
     app.switch_page("pages/3_Offers.py").run()
     assert not app.exception
     offer_text = (
-        "**Ben** (Swapper Score 4.00) offers you “They Say / I Say” for your “Business Essentials” "
+        "**Leonor** (Swapper Score 4.00) offers you “University Physics” for your “Business Essentials” "
         "· waiting for an answer"
     )
     assert offer_text in [text.value for text in app.markdown]
@@ -201,42 +201,42 @@ def test_accepting_an_offer_shares_both_emails_to_agree_the_meeting(demo_swaps):
 
     assert not app.exception
     assert [message.value for message in app.success] == [
-        "Swap agreed with Ben: you give “Business Essentials” and get “They Say / I Say”. "
-        "Email Ben at ben@example.com to agree where and when to meet. The handoff is in My Swaps."
+        "Swap agreed with Leonor: you give “Business Essentials” and get “University Physics”. "
+        "Email Leonor at leonor@example.com to agree where and when to meet. The handoff is in My Swaps."
     ]
-    assert app.toast[0].value.startswith("Swap agreed with Ben")
-    note = get_notifications("user-ben")[0].text
+    assert app.toast[0].value.startswith("Swap agreed with Leonor")
+    note = get_notifications("extra-leonor")[0].text
     assert note.startswith("Carla accepted your offer") and "Their email is in My Swaps" in note
 
     app.switch_page("pages/5_My_Swaps.py").run()
     headings = [header.value for header in app.subheader]
     assert headings == [
-        "You give “Business Essentials” to Ben",  # the newest offer comes first
-        "You get “They Say / I Say” from Ben",
+        "You give “Business Essentials” to Leonor",  # the newest offer comes first
+        "You get “University Physics” from Leonor",
         "You give “Automate the Boring Stuff with Python” to Dina",
         "You get “A Mind for Numbers” from Dina",
     ]
     lines = [text.value for text in app.markdown]
-    assert "Agree where and when to meet by email: **Ben** · ben@example.com" in lines
+    assert "Agree where and when to meet by email: **Leonor** · leonor@example.com" in lines
     assert "Agree where and when to meet by email: **Dina** · dina@example.com" in lines
-    assert "Show it to Ben when they give you the book." in [text.value for text in app.caption]
+    assert "Show it to Leonor when they give you the book." in [text.value for text in app.caption]
 
 
-def test_ben_sees_carlas_email_once_she_accepts(demo_swaps):
+def test_the_person_who_made_the_offer_sees_carlas_email_once_she_accepts(demo_swaps):
     from bookloop.storage import swaps_repo
 
     assert all(item["source"] != "offer" or item["giver_email"] is None
-               for item in swaps_repo.trades_for_user("user-ben"))  # nothing to share yet
+               for item in swaps_repo.trades_for_user("extra-leonor"))  # nothing to share yet
     app = open_app(demo_user("user-carla", "Carla"))
     app.switch_page("pages/3_Offers.py").run()
     next(button for button in app.button if button.label == "Accept and share my email").click().run()
 
-    ben = open_app(demo_user("user-ben", "Ben"))
-    ben.switch_page("pages/5_My_Swaps.py").run()
+    leonor = open_app(demo_user("extra-leonor", "Leonor"))
+    leonor.switch_page("pages/5_My_Swaps.py").run()
 
-    assert not ben.exception
+    assert not leonor.exception
     assert "Agree where and when to meet by email: **Carla** · carla@example.com" in [
-        text.value for text in ben.markdown
+        text.value for text in leonor.markdown
     ]
 
 

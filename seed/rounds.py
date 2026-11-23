@@ -5,16 +5,16 @@ Rounds run every week, so the demo can show every step without waiting:
 - Last week's round has run: Ben, Ana and Farah met, Ben's and Ana's books
   changed hands, but Farah didn't hand over hers, and Ben reported it. The
   moderator sees it under "Books not handed over". Eli's book had no match.
-- This week's round is ready to run: 22 books from 14 students, since some
-  put in two. Eli, Farah and Ana each want the next person's book, but no two
-  of them want each other's, so no direct swap is possible. When the
-  moderator runs it, the loop finder finds the 3-way loop: Eli gets Farah's
-  book, Farah gets Ana's, and Ana gets Eli's. Ben also wants Eli's book, but
-  nobody wants Ben's, so his book goes back on his shelf. Their classmates
+- This week's round is ready to run: 23 books from 15 students, since some
+  put in two. Carla and Ben want each other's books, so they swap (in the
+  demo, Carla types the code shown in Ben's window). Eli, Farah and Ana each
+  want the next person's book, but no two of them want each other's, so no
+  direct swap is possible: the loop finder finds the 3-way loop, where Eli
+  gets Farah's book, Farah gets Ana's, and Ana gets Eli's. Their classmates
   make four more loops: Gonçalo and Inês swap directly, Beatriz, Diogo and
   Leonor make a 3-way loop, Joana, Miguel, Sofia and Tiago a 4-way one, and
-  Joana's, Miguel's and Sofia's second books another 3-way one. So: 5 loops,
-  15 books change hands, 7 go back on the shelf.
+  Joana's, Miguel's and Sofia's second books another 3-way one. So: 6 loops,
+  17 books change hands, 6 go back on the shelf.
 - Next week's round is open for books: 11 are in already, from 7 students, so
   a student can enter theirs, the moderator can close entries, and everyone
   can tick what they'd accept.
@@ -47,6 +47,7 @@ ENTRIES = (
     ("entry-farah", "round-demo", "copy-06"),  # Farah: Principles of Economics
     ("entry-ana", "round-demo", "copy-07"),  # Ana: The Economics Book
     ("entry-ben", "round-demo", "copy-08"),  # Ben: World History: Patterns of Interaction
+    ("entry-carla", "round-demo", "copy-09"),  # Carla: A Little History of the World
     ("entry-goncalo", "round-demo", "copy-29"),  # Gonçalo: Python Crash Course
     ("entry-ines", "round-demo", "copy-31"),  # Inês: Principles of Economics
     ("entry-beatriz", "round-demo", "copy-27"),  # Beatriz: Psychology
@@ -88,7 +89,9 @@ WANTS = (
     ("entry-eli", "entry-farah"),
     ("entry-farah", "entry-ana"),
     ("entry-ana", "entry-eli"),
-    ("entry-ben", "entry-eli"),  # nobody wants Ben's book: no match
+    ("entry-ben", "entry-eli"),
+    ("entry-ben", "entry-carla"),  # Ben and Carla want each other's books
+    ("entry-carla", "entry-ben"),
     ("entry-goncalo", "entry-ines"),  # a direct swap
     ("entry-ines", "entry-goncalo"),
     ("entry-beatriz", "entry-diogo"),  # a 3-way loop

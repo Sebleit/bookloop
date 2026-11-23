@@ -590,21 +590,25 @@ def seed_profile(id: str, name: str, role: str = "student") -> Profile:
     return Profile(id=id, display_name=name, role=role, status="active", created_at=seed_base.CREATED_AT)
 
 
-def test_the_demo_round_finds_five_loops_including_a_three_way_one(database):
+def test_the_demo_round_finds_six_loops_including_a_three_way_one(database):
     load_demo_data(database)
 
     result = rounds_repo.run_round("round-demo")
 
-    assert len(result.loops) == 5  # Ana, Farah and Eli's loop, and four among their classmates
+    assert len(result.loops) == 6  # Ben and Carla, Ana, Farah and Eli, and four among their classmates
     eli = {(t.title, t.giver_name, t.receiver_name) for t in rounds_repo.my_trades("round-demo", "user-eli")}
     assert eli == {
         ("Calculus: Early Transcendentals", "Eli", "Ana"),
         ("Principles of Economics", "Farah", "Eli"),
     }
-    assert rounds_repo.my_trades("round-demo", "user-ben") == []
+    carla = {(t.title, t.giver_name, t.receiver_name) for t in rounds_repo.my_trades("round-demo", "user-carla")}
+    assert carla == {
+        ("A Little History of the World", "Carla", "Ben"),
+        ("World History: Patterns of Interaction", "Ben", "Carla"),
+    }
     assert rounds_repo.my_trades("round-demo", "extra-afonso") == []
-    assert result.books_swapped == 15
-    assert result.books_returned == 7  # Ben's, both of Afonso's, and four second books nobody wanted
+    assert result.books_swapped == 17
+    assert result.books_returned == 6  # both of Afonso's, and four second books nobody wanted
 
 
 def test_the_demo_loops_are_listed_smallest_first_and_in_order_around_the_circle(database):
@@ -614,6 +618,7 @@ def test_the_demo_loops_are_listed_smallest_first_and_in_order_around_the_circle
     loops = rounds_repo.loops_in_round("round-demo")
 
     assert [[trade.giver_name for trade in loop] for loop in loops] == [
+        ["Ben", "Carla"],
         ["Gonçalo", "Inês"],
         ["Ana", "Farah", "Eli"],
         ["Beatriz", "Leonor", "Diogo"],
@@ -658,7 +663,7 @@ def test_page_lets_a_student_choose_wants_in_the_demo_round(database):
 
     assert not page.exception
     (wants,) = page.multiselect
-    assert len(wants.options) == 21  # the 21 books in the round that Ana doesn't own
+    assert len(wants.options) == 22  # the 22 books in the round that Ana doesn't own
     assert page.multiselect[0].value == ["entry-eli"]  # what the demo already ticked
 
 
@@ -671,15 +676,16 @@ def test_page_lets_a_moderator_run_the_demo_round_and_shows_results(database):
 
     assert not page.exception
     assert page.success[0].value.startswith(
-        "Found 5 loops: 15 books will change hands and 7 go back on the shelf"
+        "Found 6 loops: 17 books will change hands and 6 go back on the shelf"
     )
-    assert "**Loop 2:** Ana → Farah → Eli → Ana" in [text.value for text in page.markdown]
+    assert "**Loop 1:** Ben → Carla → Ben" in [text.value for text in page.markdown]
+    assert "**Loop 3:** Ana → Farah → Eli → Ana" in [text.value for text in page.markdown]
     assert "Eli gives “Calculus: Early Transcendentals” to Ana" in [text.value for text in page.caption]
-    assert "This round created 5 loops." in [text.value for text in page.markdown]
+    assert "This round created 6 loops." in [text.value for text in page.markdown]
     ana_page = open_page(seed_profile("user-ana", "Ana"), "round-demo")
     assert ana_page.success[0].value == "You're in a swap loop!"
-    ben_page = open_page(seed_profile("user-ben", "Ben"), "round-demo")
-    assert "back on your shelf" in ben_page.info[0].value
+    afonso_page = open_page(seed_profile("extra-afonso", "Afonso"), "round-demo")
+    assert "back on your shelf" in afonso_page.info[0].value
 
 
 def test_page_shows_what_is_saved_and_confirms_a_new_save(database):
@@ -726,7 +732,7 @@ def test_the_page_keeps_showing_a_round_after_it_runs(database):
 
     assert not page.exception
     assert page.selectbox[0].value == "round-demo"  # still the round that just ran, now matched
-    assert "This round created 5 loops." in [text.value for text in page.markdown]
+    assert "This round created 6 loops." in [text.value for text in page.markdown]
     assert any(text.value.startswith("<svg") for text in page.markdown)  # with its picture
 
 
