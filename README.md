@@ -39,8 +39,8 @@ Then open http://localhost:8501. On a laptop there's a **Dev login**: pick a dem
 | Demo user | Who they are |
 |---|---|
 | Morgan | the moderator |
-| Ana, Ben, Eli, Farah | students in the demo swap round ("Winter textbook swap", ready to run) |
-| Carla | Trusted student, with a handoff to Dina waiting and a book from Eli to review |
+| Ana, Ben, Eli, Farah | students in the three weekly swap rounds: last week's ran (Farah didn't hand over her book), this week's is ready to run, next week's is open for books |
+| Carla | Trusted student, with a handoff to Dina waiting, a book from Eli to review and an offer from Ben to answer |
 | Dina | student under review: low score and two books worse than described |
 
 ## Run the tests
