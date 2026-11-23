@@ -1,4 +1,4 @@
-# Person 1 owns this file: Decision yes or no with a reason.
+# Decision yes or no with a reason.
 from dataclasses import dataclass
 
 

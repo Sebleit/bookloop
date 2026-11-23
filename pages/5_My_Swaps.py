@@ -42,7 +42,7 @@ def main() -> None:
     if message:
         st.success(message)
         st.toast(message, icon="✅")  # also pops up in the corner, wherever you've scrolled
-    st.write("Your upcoming handoffs and their meeting details.")
+    st.write("Your upcoming handoffs, and how to meet.")
     st.page_link("pages/6_Profile.py", label="Open your Profile to leave a review")
 
     try:
@@ -55,9 +55,10 @@ def main() -> None:
         st.info("No upcoming handoffs.")
         return
     st.info(
-        "Everyone in a swap meets at the same place and time. Don't hand over your book "
-        "until everyone is there. If someone doesn't come, report a no-show: the swap is "
-        "cancelled and everyone keeps their own book."
+        "Everyone in a swap meets at the same place and time: in a round, the moderator sets "
+        "it; in a direct swap, you agree it by email. Don't hand over your book until everyone "
+        "is there. If someone doesn't come, report a no-show: the swap is cancelled and everyone "
+        "keeps their own book."
     )
 
     # In every swap you both give and receive, so the same swap appears twice here.
@@ -65,13 +66,25 @@ def main() -> None:
     swaps_with_button = set()
     for item in swaps:
         trade = item["trade"]
-        st.subheader(item["title"])
-        st.write(f"Place: {item['meet_place'] or 'To be arranged'}")
-        st.write(f"Time: {_show_time(item['meet_time'])}")
+        if trade.giver_id == user.id:
+            st.subheader(f"You give “{item['title']}” to {item['receiver_name']}")
+        else:
+            st.subheader(f"You get “{item['title']}” from {item['giver_name']}")
+        if item["source"] == "offer":
+            # A direct swap: both agreed to share their email to arrange the meeting.
+            if trade.giver_id == user.id:
+                other, email = item["receiver_name"], item["receiver_email"]
+            else:
+                other, email = item["giver_name"], item["giver_email"]
+            st.write(f"Agree where and when to meet by email: **{other}** · {email or 'no email saved'}")
+        else:
+            st.write(f"Place: {item['meet_place'] or 'To be arranged'}")
+            st.write(f"Time: {_show_time(item['meet_time'])}")
 
         if trade.receiver_id == user.id:
+            st.write("Your code:")
             st.code(trade.handoff_code, language="text")
-            st.caption("Show this code to the person giving you the book.")
+            st.caption(f"Show it to {item['giver_name']} when they give you the book.")
         elif trade.giver_id == user.id:
             with st.form(f"handoff-{trade.id}"):
                 entered_code = st.text_input("Receiver's 4-digit code")

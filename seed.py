@@ -1,4 +1,4 @@
-# Person 1 owns this file: rebuilds the local database with demo data.
+# Rebuilds the local database with demo data.
 from pathlib import Path
 
 from bookloop.storage.db import _create_engine
@@ -39,10 +39,13 @@ def rebuild_local_database() -> None:
 
     students = ", ".join(base.STUDENTS)
     print(f"Rebuilt local database: {DATABASE_PATH.name}")
-    print(f"Profiles: Morgan (moderator); {len(base.STUDENTS)} students ({students}).")
+    print(
+        f"Profiles: Morgan (moderator); {len(base.STUDENTS)} students ({students}); "
+        f"{len(base.CLASSMATES)} classmates."
+    )
     print(
         f"Courses: {len(base.COURSES)}; textbooks: {len(base.BOOKS)}; "
-        "copies: 25 (conditions 1 through 4)."
+        f"copies: {25 + len(base.CLASSMATE_COPIES)} (conditions 1 through 4)."
     )
 
 

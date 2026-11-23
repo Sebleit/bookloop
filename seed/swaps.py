@@ -1,21 +1,27 @@
-# Person 2 owns this file: demo direct swaps.
+# Demo direct swaps.
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
+
+from bookloop.rules.handoffs import new_code  # random, like real swaps
 
 
 CREATED_AT = "2026-11-14T00:00:00Z"
 PENDING_EXPIRES_AT = "2026-11-23T00:00:00Z"
 
 
-def _next_full_hour() -> str:
-    in_an_hour = datetime.now(timezone.utc) + timedelta(hours=1)
-    return in_an_hour.replace(minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z")
+def _offer_times() -> tuple[str, str]:
+    """Leonor made her offer yesterday at 16:00; it expires 72 hours later."""
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    made = today - timedelta(days=1) + timedelta(hours=16)
+    return tuple(moment.isoformat().replace("+00:00", "Z") for moment in (made, made + timedelta(hours=72)))
 
 
 def seed(connection: Connection) -> None:
-    """Insert one completed and one pending direct swap for the demo."""
+    """Insert one completed and one pending direct swap for the demo, and an offer
+    waiting for Carla's answer (Leonor's University Physics for her Business Essentials).
+    Leonor is a classmate who never logs in, so accepting shows a made-up email."""
     offers = [
         {
             "id": "offer-demo-completed",
@@ -36,6 +42,18 @@ def seed(connection: Connection) -> None:
             "expires_at": PENDING_EXPIRES_AT,
         },
     ]
+    made, expires = _offer_times()
+    offers.append(
+        {
+            "id": "offer-demo-leonor",
+            "proposer_id": "extra-leonor",
+            "offered_copy_id": "copy-52",  # University Physics (seed/base.py)
+            "requested_copy_id": "copy-15",  # Carla's Business Essentials
+            "status": "pending",
+            "created_at": made,
+            "expires_at": expires,
+        }
+    )
     connection.execute(
         text(
             "INSERT INTO offers "
@@ -58,9 +76,9 @@ def seed(connection: Connection) -> None:
             "id": "loop-demo-pending",
             "offer_id": "offer-demo-pending",
             "status": "scheduled",
-            "meet_place": "Student centre",
-            # The next full hour after the demo data is built, so the meeting is "now".
-            "meet_time": _next_full_hour(),
+            # A direct swap: Carla and Dina agree where and when by email.
+            "meet_place": None,
+            "meet_time": None,
         },
     ]
     connection.execute(
@@ -79,7 +97,7 @@ def seed(connection: Connection) -> None:
             "copy_id": "copy-01",
             "giver_id": "user-ana",
             "receiver_id": "user-ben",
-            "handoff_code": "1111",
+            "handoff_code": new_code(),
             "status": "completed",
             "completed_at": "2026-11-15T14:10:00Z",
         },
@@ -89,7 +107,7 @@ def seed(connection: Connection) -> None:
             "copy_id": "copy-02",
             "giver_id": "user-ben",
             "receiver_id": "user-ana",
-            "handoff_code": "2222",
+            "handoff_code": new_code(),
             "status": "completed",
             "completed_at": "2026-11-15T14:10:00Z",
         },
@@ -99,7 +117,7 @@ def seed(connection: Connection) -> None:
             "copy_id": "copy-03",
             "giver_id": "user-carla",
             "receiver_id": "user-dina",
-            "handoff_code": "3333",
+            "handoff_code": new_code(),
             "status": "pending",
             "completed_at": None,
         },
@@ -109,7 +127,7 @@ def seed(connection: Connection) -> None:
             "copy_id": "copy-04",
             "giver_id": "user-dina",
             "receiver_id": "user-carla",
-            "handoff_code": "4444",
+            "handoff_code": new_code(),
             "status": "pending",
             "completed_at": None,
         },

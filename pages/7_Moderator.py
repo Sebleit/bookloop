@@ -83,6 +83,14 @@ def _resolve(moderator: Profile, trade_id: str) -> None:
 # --- Tabs ------------------------------------------------------------------
 
 
+def _show_contacts(loop_id: str) -> None:
+    """Everyone in the swap with their email, so the moderator can ask what happened."""
+    people = reviews_repo.swap_contacts(loop_id)
+    if people:
+        contacts = " · ".join(f"{person['name']} ({person['email'] or 'no email saved'})" for person in people)
+        st.caption(f"Everyone in this swap: {contacts}")
+
+
 def _flags_tab(moderator: Profile) -> None:
     problems = reviews_repo.problem_reports()
     flags = reviews_repo.flagged_swaps()
@@ -103,6 +111,7 @@ def _flags_tab(moderator: Profile) -> None:
                 )
                 # The picture is SVG we build ourselves, with every name and title escaped (st.html removes SVG).
                 st.markdown(loop_svg(rounds_repo.loop_trades(problem.loop_id)), unsafe_allow_html=True)
+                _show_contacts(problem.loop_id)
                 st.caption(f"Reported {_show_time(problem.reported_at)}")
                 col1, col2 = st.columns(2)
                 if col1.button("Mark as resolved", key=f"resolve_problem_{problem.trade_id}"):
@@ -117,11 +126,13 @@ def _flags_tab(moderator: Profile) -> None:
     for flag in flags:
         with st.container(border=True):
             st.write(
-                f"**{flag.title}**: {flag.giver_name} → {flag.receiver_name}, arrived "
-                f"*{CONDITIONS[flag.actual_condition]}* · {_stars(flag.stars)}"
+                f"**{flag.title}**: {flag.giver_name} → {flag.receiver_name}, listed "
+                f"*{CONDITIONS[flag.listed_condition]}*, arrived *{CONDITIONS[flag.actual_condition]}* "
+                f"· {_stars(flag.stars)}"
             )
             if flag.comment:
                 st.write(f"“{flag.comment}”")
+            _show_contacts(flag.loop_id)
             st.caption(f"Flagged {_show_time(flag.flagged_at)}")
             col1, col2 = st.columns(2)
             if col1.button("Mark as resolved", key=f"resolve_{flag.trade_id}"):

@@ -1,4 +1,4 @@
-# Person 1 owns this file: permission checks.
+# Permission checks.
 from typing import Any
 
 

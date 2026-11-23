@@ -626,6 +626,9 @@ def test_moderator_page_shows_flags_and_can_clear_a_user(database):
     page = open_page("7_Moderator.py", moderator)
     assert not page.exception
     assert [b.label for b in page.button].count("Mark as resolved") == 2
+    flags = [text.value for text in page.markdown if "arrived" in text.value]
+    assert flags and all(", listed *" in flag for flag in flags)  # what the listing said, next to what arrived
+    assert any(text.value.startswith("Everyone in this swap: ") for text in page.caption)
     page = next(b for b in page.button if b.label == "Clear").click().run()
 
     assert page.success[0].value == "Dina has been cleared: they can swap again."
@@ -638,3 +641,14 @@ def test_students_cannot_open_the_moderator_page(database):
     page = open_page("7_Moderator.py", seed_profile("user-ana", "Ana"))
 
     assert page.error[0].value == "You don't have permission to view this page."
+
+
+def test_each_login_keeps_the_profile_email_up_to_date(make_user):
+    ana = make_user(name="Ana")
+
+    reviews_repo.save_email(ana.id, "ana@novasbe.pt")
+    reviews_repo.save_email(ana.id, None)  # nothing to save: the email stays
+
+    with db.transaction() as connection:
+        email = connection.execute(text("SELECT email FROM profiles WHERE id = :id"), {"id": ana.id}).scalar()
+    assert email == "ana@novasbe.pt"

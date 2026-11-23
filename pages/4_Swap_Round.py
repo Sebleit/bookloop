@@ -35,6 +35,7 @@ PHASE_LABELS = {
 }
 CONDITIONS = {1: "poor", 2: "fair", 3: "good", 4: "like new"}
 FLASH_KEY = "swap_round_message"
+SHOWN_ROUND_KEY = "swap_round_shown"  # the id of the round on screen
 
 
 # --- Small helpers ---------------------------------------------------------
@@ -95,6 +96,24 @@ def _entry_label(entry: rounds_repo.EntryDetails, scores: dict[str, float]) -> s
 # --- Moderator: create, advance and run -----------------------------------
 
 
+def _choose_round(rounds: list[Round]) -> Round:
+    """Pick the round to show, and keep showing it after it changes phase.
+
+    The menu's label includes the phase ("Choosing wants" becomes "Matched" when the
+    round runs), so the menu remembers the round's id, not its label.
+    """
+    by_id = {item.id: item for item in rounds}
+    shown = st.session_state.get(SHOWN_ROUND_KEY)
+    chosen = st.selectbox(
+        "Round",
+        list(by_id),
+        index=list(by_id).index(shown) if shown in by_id else 0,
+        format_func=lambda round_id: f"{by_id[round_id].name} — {PHASE_LABELS[by_id[round_id].phase]}",
+    )
+    st.session_state[SHOWN_ROUND_KEY] = chosen
+    return by_id[chosen]
+
+
 def _create_round_form(user: Profile) -> None:
     with st.expander("Create a new round"):
         today = date.today()
@@ -121,10 +140,11 @@ def _create_round_form(user: Profile) -> None:
         st.error(decision.reason)
         return
     try:
-        rounds_repo.create_round(name, entries_close, wants_close, meet_place, meet_time, user.id)
+        created = rounds_repo.create_round(name, entries_close, wants_close, meet_place, meet_time, user.id)
     except Exception:
         st.error("The round could not be saved. Please try again.")
         return
+    st.session_state[SHOWN_ROUND_KEY] = created.id  # show the new round
     _flash("success", f"Round “{name.strip()}” created. Students can now enter books.")
 
 
@@ -399,9 +419,7 @@ def main() -> None:
         st.info(f"No swap rounds yet. {hint}")
         return
 
-    round = st.selectbox(
-        "Round", rounds, format_func=lambda item: f"{item.name} — {PHASE_LABELS[item.phase]}"
-    )
+    round = _choose_round(rounds)
     st.write(
         f"**{PHASE_LABELS[round.phase]}** · handoffs at **{round.meet_place}**, "
         f"**{_show_time(round.meet_time)}**"

@@ -10,12 +10,19 @@ book until everyone is there. So:
 """
 
 from collections.abc import Sequence
+from secrets import randbelow
 
 from bookloop.models import Loop, Trade
 from bookloop.rules.decision import Decision
 
 
 MAX_WRONG_CODE_ATTEMPTS = 3
+
+
+def new_code() -> str:
+    """A random 4-digit handoff code, like "0837". It comes from Python's secrets
+    module, which is made for security, so codes can't be predicted."""
+    return f"{randbelow(10_000):04d}"
 
 
 def is_locked(trade: Trade) -> bool:

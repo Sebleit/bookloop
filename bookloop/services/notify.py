@@ -1,4 +1,4 @@
-# Person 1 owns this file: send notifications.
+# Send notifications.
 from datetime import datetime, timezone
 from uuid import uuid4
 

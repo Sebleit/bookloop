@@ -590,30 +590,44 @@ def seed_profile(id: str, name: str, role: str = "student") -> Profile:
     return Profile(id=id, display_name=name, role=role, status="active", created_at=seed_base.CREATED_AT)
 
 
-def test_the_demo_round_produces_a_three_way_loop(database):
+def test_the_demo_round_finds_six_loops_including_a_three_way_one(database):
     load_demo_data(database)
 
     result = rounds_repo.run_round("round-demo")
 
-    (loop,) = result.loops
+    assert len(result.loops) == 6  # Ben and Carla, Ana, Farah and Eli, and four among their classmates
     eli = {(t.title, t.giver_name, t.receiver_name) for t in rounds_repo.my_trades("round-demo", "user-eli")}
     assert eli == {
         ("Calculus: Early Transcendentals", "Eli", "Ana"),
         ("Principles of Economics", "Farah", "Eli"),
     }
-    assert rounds_repo.my_trades("round-demo", "user-ben") == []
-    assert result.books_returned == 1
+    carla = {(t.title, t.giver_name, t.receiver_name) for t in rounds_repo.my_trades("round-demo", "user-carla")}
+    assert carla == {
+        ("A Little History of the World", "Carla", "Ben"),
+        ("World History: Patterns of Interaction", "Ben", "Carla"),
+    }
+    assert rounds_repo.my_trades("round-demo", "extra-afonso") == []
+    assert result.books_swapped == 17
+    assert result.books_returned == 6  # both of Afonso's, and four second books nobody wanted
 
 
-def test_the_demo_loop_is_listed_in_order_around_the_circle(database):
+def test_the_demo_loops_are_listed_smallest_first_and_in_order_around_the_circle(database):
     load_demo_data(database)
     rounds_repo.run_round("round-demo")
 
-    (loop,) = rounds_repo.loops_in_round("round-demo")
+    loops = rounds_repo.loops_in_round("round-demo")
 
-    assert [trade.giver_name for trade in loop] == ["Ana", "Farah", "Eli"]
-    for trade, following in zip(loop, loop[1:] + loop[:1]):
-        assert trade.receiver_id == following.giver_id  # each receiver gives the next book
+    assert [[trade.giver_name for trade in loop] for loop in loops] == [
+        ["Ben", "Carla"],
+        ["Gonçalo", "Inês"],
+        ["Ana", "Farah", "Eli"],
+        ["Beatriz", "Leonor", "Diogo"],
+        ["Joana", "Sofia", "Miguel"],  # their second books
+        ["Joana", "Tiago", "Sofia", "Miguel"],
+    ]
+    for loop in loops:
+        for trade, following in zip(loop, loop[1:] + loop[:1]):
+            assert trade.receiver_id == following.giver_id  # each receiver gives the next book
     assert rounds_repo.loops_in_round("no-such-round") == []
 
 
@@ -623,11 +637,14 @@ def test_the_demo_loop_is_listed_in_order_around_the_circle(database):
 PAGE = Path(__file__).resolve().parents[1] / "pages" / "4_Swap_Round.py"
 
 
-def open_page(user) -> AppTest:
-    """Open the Swap Round page logged in as `user` (laptop mode, test database)."""
+def open_page(user, round_id: str | None = None) -> AppTest:
+    """Open the Swap Round page logged in as `user` (laptop mode, test database),
+    showing `round_id` (otherwise the newest round, as the page does)."""
     page = AppTest.from_file(str(PAGE), default_timeout=30)
     page.session_state["current_user"] = user
     page.session_state["_auth_mode"] = "laptop"
+    if round_id:
+        page.session_state["swap_round_shown"] = round_id
     return page.run()
 
 
@@ -642,11 +659,11 @@ def test_page_lets_a_student_choose_wants_in_the_demo_round(database):
     load_demo_data(database)
     ana = seed_profile("user-ana", "Ana")
 
-    page = open_page(ana)
+    page = open_page(ana, "round-demo")
 
     assert not page.exception
     (wants,) = page.multiselect
-    assert len(wants.options) == 3  # the three books Ana doesn't own
+    assert len(wants.options) == 22  # the 22 books in the round that Ana doesn't own
     assert page.multiselect[0].value == ["entry-eli"]  # what the demo already ticked
 
 
@@ -654,25 +671,28 @@ def test_page_lets_a_moderator_run_the_demo_round_and_shows_results(database):
     load_demo_data(database)
     moderator = seed_profile("user-moderator", "Morgan", role="moderator")
 
-    page = open_page(moderator)
+    page = open_page(moderator, "round-demo")
     page = next(button for button in page.button if button.label == "Run round").click().run()
 
     assert not page.exception
-    assert page.success[0].value.startswith("Found 1 loop: 3 books will change hands")
-    assert "**Loop 1:** Ana → Farah → Eli → Ana" in [text.value for text in page.markdown]
+    assert page.success[0].value.startswith(
+        "Found 6 loops: 17 books will change hands and 6 go back on the shelf"
+    )
+    assert "**Loop 1:** Ben → Carla → Ben" in [text.value for text in page.markdown]
+    assert "**Loop 3:** Ana → Farah → Eli → Ana" in [text.value for text in page.markdown]
     assert "Eli gives “Calculus: Early Transcendentals” to Ana" in [text.value for text in page.caption]
-    assert "This round created 1 loop." in [text.value for text in page.markdown]
-    ana_page = open_page(seed_profile("user-ana", "Ana"))
+    assert "This round created 6 loops." in [text.value for text in page.markdown]
+    ana_page = open_page(seed_profile("user-ana", "Ana"), "round-demo")
     assert ana_page.success[0].value == "You're in a swap loop!"
-    ben_page = open_page(seed_profile("user-ben", "Ben"))
-    assert "back on your shelf" in ben_page.info[0].value
+    afonso_page = open_page(seed_profile("extra-afonso", "Afonso"), "round-demo")
+    assert "back on your shelf" in afonso_page.info[0].value
 
 
 def test_page_shows_what_is_saved_and_confirms_a_new_save(database):
     load_demo_data(database)
     ana = seed_profile("user-ana", "Ana")
 
-    page = open_page(ana)
+    page = open_page(ana, "round-demo")
     captions = [text.value for text in page.caption]
     assert "✅ Saved: you'd accept 1 book. You can change it until wants close." in captions
 
@@ -695,3 +715,38 @@ def test_saved_wants_line_says_when_nothing_is_saved_and_shows_the_minimum_score
         "✅ Saved: you'd accept 3 books, from people scoring at least 4.00. "
         "You can change it until wants close."
     )
+
+
+def test_the_page_keeps_showing_a_round_after_it_runs(database):
+    load_demo_data(database)
+    moderator = seed_profile("user-moderator", "Morgan", role="moderator")
+    newer = rounds_repo.create_round(
+        "Next week", "2099-01-01T18:00:00Z", "2099-01-03T18:00:00Z", "Library", "2099-01-04T14:00:00Z", moderator.id
+    )
+
+    page = open_page(moderator)
+    (menu,) = page.selectbox
+    assert menu.value == newer.id  # the newest round comes first
+    page = menu.set_value("round-demo").run()
+    page = next(button for button in page.button if button.label == "Run round").click().run()
+
+    assert not page.exception
+    assert page.selectbox[0].value == "round-demo"  # still the round that just ran, now matched
+    assert "This round created 6 loops." in [text.value for text in page.markdown]
+    assert any(text.value.startswith("<svg") for text in page.markdown)  # with its picture
+
+
+def test_a_moderator_sees_the_round_they_just_created(database):
+    load_demo_data(database)
+    moderator = seed_profile("user-moderator", "Morgan", role="moderator")
+
+    page = open_page(moderator)
+    form_inputs = [box for box in page.text_input if box.label in ("Name", "Meeting place")]
+    form_inputs[0].input("Next week")
+    form_inputs[1].input("Library")
+    page = next(button for button in page.button if button.label == "Create round").click().run()
+
+    assert not page.exception
+    assert page.success[0].value == "Round “Next week” created. Students can now enter books."
+    created = next(item for item in rounds_repo.list_rounds() if item.name == "Next week")
+    assert page.selectbox[0].value == created.id

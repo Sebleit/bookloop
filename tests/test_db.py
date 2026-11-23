@@ -1,4 +1,4 @@
-# Person 1 owns this file: tests for database setup and transactions.
+# Tests for database setup and transactions.
 import pytest
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError

@@ -1,4 +1,4 @@
-# Person 1 owns this file: database connection and transactions.
+# Database connection and transactions.
 import os
 from contextlib import contextmanager
 from typing import Iterator
