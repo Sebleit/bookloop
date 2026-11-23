@@ -8,7 +8,7 @@ After the demo, the teachers open the repository and ask questions. Any of us ca
 Online in Supabase's PostgreSQL database; on a laptop in a local SQLite file, `bookloop.db`, that `seed.py` fills with demo data. The tables are defined once, in `db/migrations/001_init.sql`. All database code is in `bookloop/storage/`.
 
 **What do the tests cover, and what don't they?**
-About 290 tests, run on every push by GitHub Actions. They cover the rules (accepted actions, refused actions, edge cases), the storage code on a temporary SQLite database, the pages (opened with Streamlit's test tool as different users), and Open Library with faked answers. They don't cover the real Supabase database and its row-level security, the real Supabase login, the real Open Library, or a real browser. Logging in through the form, links to a page while logged out, and Log out were checked by hand in a browser, because Streamlit's test tool can't follow them.
+About 330 tests, run on every push by GitHub Actions. They cover the rules (accepted actions, refused actions, edge cases), the storage code on a temporary SQLite database, the pages (opened with Streamlit's test tool as different users), and Open Library with faked answers. They don't cover the real Supabase database and its row-level security, the real Supabase login, the real Open Library, or a real browser. Logging in through the form, links to a page while logged out, and Log out were checked by hand in a browser, because Streamlit's test tool can't follow them.
 
 **What happens if Open Library is unavailable?**
 The lookup gives up after 5 seconds or on any error and returns nothing, and My Shelf shows a form to type the title and author. Listing still works. A book found once is saved in our `books` table, so we don't ask Open Library twice for the same ISBN. (`bookloop/services/openlibrary.py`, `tests/test_openlibrary.py`)
@@ -67,7 +67,7 @@ Everyone in a swap meets at the same place and time, and nobody hands over a boo
 - Once a code has been typed, everyone was there, so "no-show" disappears. If someone still doesn't hand over their book, the others click "Report a problem": the moderator gets a report with a picture of the swap (green arrows for books handed over, grey for books still waiting) and can resolve it or suspend the person. Nothing is cancelled automatically, because nobody would really go back and return a book.
 
 **Can the moderator see a swap?**
-Yes: on Swap Round, after a round runs, each loop is drawn as a circle of people with an arrow per book; and every "book not handed over" report on the Moderator page has the picture of that swap.
+Yes: on Swap Round, after a round runs, each loop is drawn as a picture: the people top to bottom in the order the books go, an arrow per book (green handed over, grey waiting, red cancelled), and the last arrow going back up to the first person. Every "book not handed over" report on the Moderator page has the picture of that swap too. Everything in the picture has a fixed place, so nothing can overlap: titles are cut to 28 characters and names to 14 (hover to see them in full), and a test checks every loop size from 2 to 6.
 
 **What does the Stats page show?**
 For moderators: books listed, swaps completed, the average score, the most-wanted books, and a CSV download of it all.
