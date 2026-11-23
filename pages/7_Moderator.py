@@ -13,7 +13,7 @@ from datetime import datetime
 import streamlit as st
 
 from bookloop import auth
-from bookloop.loop_picture import loop_dot
+from bookloop.loop_picture import loop_svg
 from bookloop.models import Profile
 from bookloop.rules.reputation import can_change_status
 from bookloop.rules.reviews import CONDITIONS, can_hide_review, can_resolve_flag
@@ -101,7 +101,8 @@ def _flags_tab(moderator: Profile) -> None:
                     f"**{problem.reporter_name}** says **{problem.giver_name}** didn't hand over "
                     f"“{problem.title}” ({problem.giver_name} → {problem.receiver_name})."
                 )
-                st.graphviz_chart(loop_dot(rounds_repo.loop_trades(problem.loop_id)))
+                # The picture is SVG we build ourselves, with every name and title escaped (st.html removes SVG).
+                st.markdown(loop_svg(rounds_repo.loop_trades(problem.loop_id)), unsafe_allow_html=True)
                 st.caption(f"Reported {_show_time(problem.reported_at)}")
                 col1, col2 = st.columns(2)
                 if col1.button("Mark as resolved", key=f"resolve_problem_{problem.trade_id}"):

@@ -67,14 +67,14 @@ The tables are defined in `db/migrations/001_init.sql` (16 tables, with foreign 
 
 - **Login:** Supabase Auth online. BookLoop never stores passwords: they go straight to Supabase Auth over HTTPS, and Supabase keeps only a bcrypt hash, so nobody can read them. Everyone signs up as a student; only an administrator can make someone a moderator, in the database. The dev login is refused whenever `DATABASE_URL` is set.
 - **Permissions:** checked in the rules and in the storage functions, and moderator pages call `require_role("moderator")`. `tests/test_permissions.py` and `tests/test_app.py` try pages as the wrong user.
-- **Input:** SQL always uses parameters, so typed text can't change a query (no SQL injection). Search escapes `%` and `_`, so they're searched for literally. The rules check lengths and allowed values, and the database has `CHECK` rules and foreign keys as a last line.
+- **Input:** SQL always uses parameters, so typed text can't change a query (no SQL injection). Search escapes `%` and `_`, so they're searched for literally. The swap picture is SVG that BookLoop builds itself, with every name and title escaped, so typed text can never become HTML. The rules check lengths and allowed values, and the database has `CHECK` rules and foreign keys as a last line.
 - **Supabase:** row-level security is on for every table (`db/supabase_only.sql`). Through Supabase's public API, a logged-in user can read only their own profile. The app itself reaches the data through the private `DATABASE_URL`, which only the server has.
 - **Secrets:** only in the host's settings. `.env`, `.streamlit/secrets.toml` and `bookloop.db` are ignored by git.
 - **Libraries:** few, with exact versions pinned in `uv.lock`, and `pip-audit` checks them for known vulnerabilities on every push.
 
 ## Tests
 
-`uv run pytest` runs about 290 tests, also on every push (GitHub Actions).
+`uv run pytest` runs about 330 tests, also on every push (GitHub Actions).
 
 - **Rules:** accepted actions, refused actions and edge cases (an offer at exactly 72 hours, a review one second after the 14-day window, two loops that want the same book).
 - **Storage:** on a fresh temporary SQLite database, using shared factories (`make_user`, `make_copy`, ...) instead of the demo data.

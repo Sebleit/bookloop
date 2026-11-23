@@ -12,7 +12,7 @@ from datetime import date, datetime, time, timedelta, timezone
 import streamlit as st
 
 from bookloop import auth
-from bookloop.loop_picture import loop_dot
+from bookloop.loop_picture import loop_svg
 from bookloop.models import Profile, Round
 from bookloop.rules.permissions import is_moderator
 from bookloop.rules.rounds import (
@@ -169,7 +169,8 @@ def _show_loops(round: Round) -> None:
     for number, trades in enumerate(loops, start=1):
         circle = " → ".join([trade.giver_name for trade in trades] + [trades[0].giver_name])
         st.write(f"**Loop {number}:** {circle}")
-        st.graphviz_chart(loop_dot(trades))
+        # The picture is SVG we build ourselves, with every name and title escaped (st.html removes SVG).
+        st.markdown(loop_svg(trades), unsafe_allow_html=True)
         for trade in trades:
             st.caption(f"{trade.giver_name} gives “{trade.title}” to {trade.receiver_name}")
     if loops:
