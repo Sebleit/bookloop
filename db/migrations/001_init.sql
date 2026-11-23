@@ -4,7 +4,9 @@ CREATE TABLE IF NOT EXISTS profiles (
     display_name TEXT NOT NULL,
     role TEXT NOT NULL CHECK (role IN ('student', 'moderator')),
     status TEXT NOT NULL CHECK (status IN ('active', 'under_review', 'suspended')),
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    -- Shown only to the other people in a direct swap, and to moderators on a report.
+    email TEXT
 );
 
 CREATE TABLE IF NOT EXISTS books (
