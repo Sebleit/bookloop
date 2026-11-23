@@ -1,13 +1,14 @@
 """Browse page: find books other students are offering.
 
 Search by title, author or ISBN, filter by course and condition, and see each
-owner's Swapper Score and badge before you make an offer.
+book's condition and its owner's Swapper Score before you make an offer. Badges
+(New, Trusted, Under review) are on each person's Profile page.
 """
 
 import streamlit as st
 
 from bookloop import auth
-from bookloop.rules.copies import CONDITIONS
+from bookloop.rules.copies import CONDITIONS, course_label
 from bookloop.storage import copies_repo
 from bookloop.storage.reviews_repo import swapper_score
 
@@ -24,8 +25,7 @@ def _owner_line(item: copies_repo.BrowseItem, scores: dict) -> str:
     score = scores.get(item.copy.owner_id)
     if score is None:
         return f"Offered by **{item.owner_name}**"
-    badge = f" · {score.badge}" if score.badge else ""
-    return f"Offered by **{item.owner_name}** · ★ {score.score:.2f}{badge}"
+    return f"Offered by **{item.owner_name}** · Swapper Score {score.score:.2f}"
 
 
 def _show_item(item: copies_repo.BrowseItem, scores: dict) -> None:
@@ -57,7 +57,7 @@ def main() -> None:
 
     query = st.text_input("Search by title, author or ISBN")
     col1, col2 = st.columns(2)
-    course_names = {course.id: f"{course.code} — {course.name}" for course in courses}
+    course_names = {course.id: course_label(course.code, course.name) for course in courses}
     course_id = col1.selectbox(
         "Course", [None, *course_names], format_func=lambda id: "All courses" if id is None else course_names[id]
     )

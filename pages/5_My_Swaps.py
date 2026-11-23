@@ -3,6 +3,8 @@ from datetime import datetime, timezone
 import streamlit as st
 
 from bookloop import auth
+from bookloop.storage.reviews_repo import report_missing_handoff
+from bookloop.storage.rounds_repo import loop_trades
 from bookloop.storage.swaps_repo import (
     confirm_handoff,
     loop_participants,
@@ -51,6 +53,11 @@ def main() -> None:
     if not swaps:
         st.info("No upcoming handoffs.")
         return
+    st.info(
+        "Everyone in a swap meets at the same place and time. Don't hand over your book "
+        "until everyone is there. If someone doesn't come, report a no-show: the swap is "
+        "cancelled and everyone keeps their own book."
+    )
 
     # In every swap you both give and receive, so the same swap appears twice here.
     # The no-show button is drawn only once per swap.
@@ -82,6 +89,9 @@ def main() -> None:
         if trade.loop_id in swaps_with_button:
             continue
         swaps_with_button.add(trade.loop_id)
+        if any(step.status == "completed" for step in loop_trades(trade.loop_id)):
+            _report_problem(user, trade.loop_id)
+            continue
         participants = [
             participant
             for participant in loop_participants(trade.loop_id)
@@ -105,6 +115,37 @@ def main() -> None:
                 st.error(str(error))
             else:
                 _flash(f"Swap cancelled. {no_show_user['display_name']} was recorded as a no-show.")
+
+
+def _report_problem(user, loop_id: str) -> None:
+    """A book has changed hands, so everyone was there: no no-show any more.
+    If someone still hasn't handed over their book, a moderator checks it."""
+    not_handed = {
+        step.giver_id: step.giver_name
+        for step in loop_trades(loop_id)
+        if step.status == "pending" and step.giver_id != user.id
+    }
+    if not not_handed:
+        return
+    st.caption(
+        "A book has already changed hands in this swap, so everyone was there. If someone "
+        "didn't hand over their book, tell the moderator: nothing is cancelled automatically."
+    )
+    accused = next(iter(not_handed))
+    if len(not_handed) > 1:
+        accused = st.selectbox(
+            "Who didn't hand over their book?",
+            list(not_handed),
+            format_func=not_handed.get,
+            key=f"problem-who-{loop_id}",
+        )
+    if st.button("Report a problem", key=f"problem-{loop_id}"):
+        try:
+            report_missing_handoff(loop_id, user.id, accused)
+        except ValueError as error:
+            st.error(str(error))
+        else:
+            _flash(f"Thanks. A moderator will check what happened with {not_handed[accused]}.")
 
 
 if __name__ == "__main__":

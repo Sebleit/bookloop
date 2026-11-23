@@ -12,6 +12,7 @@ from uuid import uuid4
 from sqlalchemy import text
 
 from bookloop.models import Book, Copy, Course
+from bookloop.rules.copies import clean_course_name, course_label
 from bookloop.rules.wishlist import people_to_notify
 from bookloop.services.notify import notify
 from bookloop.storage.db import transaction
@@ -149,8 +150,46 @@ def save_book(book: Book) -> Book:
 
 def list_courses() -> list[Course]:
     with transaction() as connection:
-        rows = connection.execute(text("SELECT id, code, name FROM courses ORDER BY code")).mappings().all()
+        rows = connection.execute(text("SELECT id, code, name FROM courses ORDER BY name")).mappings().all()
     return [Course(**row) for row in rows]
+
+
+def find_or_create_course(name: str) -> Course:
+    """The course a student picked or typed: an existing one if the name, code or
+    label already exists (ignoring capitals), otherwise a new course for everyone."""
+    cleaned = clean_course_name(name)
+    wanted = cleaned.lower()
+    for course in list_courses():
+        if wanted in {course.name.lower(), course.code.lower(), course_label(course.code, course.name).lower()}:
+            return course
+    course = Course(id=str(uuid4()), code=cleaned, name=cleaned)
+    with transaction() as connection:
+        connection.execute(
+            text("INSERT INTO courses (id, code, name) VALUES (:id, :code, :name)"),
+            {"id": course.id, "code": course.code, "name": course.name},
+        )
+    return course
+
+
+def book_course_ids(book_id: str) -> list[str]:
+    """The courses a book is used in."""
+    with transaction() as connection:
+        rows = connection.execute(
+            text("SELECT course_id FROM book_courses WHERE book_id = :book ORDER BY course_id"),
+            {"book": book_id},
+        ).scalars()
+        return list(rows)
+
+
+def set_book_courses(book_id: str, course_ids: list[str]) -> None:
+    """Replace the courses a book is used in (they're shared by every copy of it)."""
+    with transaction() as connection:
+        connection.execute(text("DELETE FROM book_courses WHERE book_id = :book"), {"book": book_id})
+        for course_id in dict.fromkeys(course_ids):
+            connection.execute(
+                text("INSERT INTO book_courses (book_id, course_id) VALUES (:book, :course)"),
+                {"book": book_id, "course": course_id},
+            )
 
 
 # --- Copies ----------------------------------------------------------------
@@ -293,14 +332,14 @@ def search_available(
         ).mappings().all()
         course_rows = connection.execute(
             text(
-                "SELECT bc.book_id, co.code FROM book_courses bc "
-                "JOIN courses co ON co.id = bc.course_id ORDER BY co.code"
+                "SELECT bc.book_id, co.name FROM book_courses bc "
+                "JOIN courses co ON co.id = bc.course_id ORDER BY co.name"
             )
         ).mappings().all()
 
     courses: dict[str, list[str]] = {}
     for row in course_rows:
-        courses.setdefault(row["book_id"], []).append(row["code"])
+        courses.setdefault(row["book_id"], []).append(row["name"])
     return [
         BrowseItem(
             copy=_copy(row),

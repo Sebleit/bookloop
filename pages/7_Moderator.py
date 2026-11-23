@@ -13,10 +13,11 @@ from datetime import datetime
 import streamlit as st
 
 from bookloop import auth
+from bookloop.loop_picture import loop_dot
 from bookloop.models import Profile
 from bookloop.rules.reputation import can_change_status
 from bookloop.rules.reviews import CONDITIONS, can_hide_review, can_resolve_flag
-from bookloop.storage import reviews_repo
+from bookloop.storage import reviews_repo, rounds_repo
 
 
 FLASH_KEY = "moderator_message"
@@ -82,10 +83,34 @@ def _resolve(moderator: Profile, trade_id: str) -> None:
 
 
 def _flags_tab(moderator: Profile) -> None:
+    problems = reviews_repo.problem_reports()
     flags = reviews_repo.flagged_swaps()
-    if not flags:
+    if not problems and not flags:
         st.info("No flagged swaps right now.")
         return
+    if problems:
+        st.subheader("Books not handed over")
+        st.caption(
+            "Someone in these swaps says a person didn't hand over their book. "
+            "The picture shows which books have changed hands."
+        )
+        for problem in problems:
+            with st.container(border=True):
+                st.write(
+                    f"**{problem.reporter_name}** says **{problem.giver_name}** didn't hand over "
+                    f"“{problem.title}” ({problem.giver_name} → {problem.receiver_name})."
+                )
+                st.graphviz_chart(loop_dot(rounds_repo.loop_trades(problem.loop_id)))
+                st.caption(f"Reported {_show_time(problem.reported_at)}")
+                col1, col2 = st.columns(2)
+                if col1.button("Mark as resolved", key=f"resolve_problem_{problem.trade_id}"):
+                    _resolve(moderator, problem.trade_id)
+                if col2.button(f"Suspend {problem.giver_name}", key=f"suspend_problem_{problem.trade_id}"):
+                    _change_status(moderator, reviews_repo.get_profile(problem.giver_id), "suspended")
+    if not flags:
+        return
+    if problems:
+        st.subheader("Books worse than described")
     st.caption("These books arrived 2 or more levels worse than their listing said.")
     for flag in flags:
         with st.container(border=True):
