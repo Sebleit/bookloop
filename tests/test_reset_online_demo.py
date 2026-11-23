@@ -77,7 +77,9 @@ def test_reset_gives_the_demo_data_to_the_demo_accounts(demo, online):
     assert (giver, receiver, code) == (accounts["Carla"], accounts["Dina"], "3333")
     # No row still points at a laptop demo user.
     assert _one(online, "SELECT count(*) FROM copies WHERE owner_id LIKE 'user-%'") == (0,)
-    assert _one(online, "SELECT count(*) FROM rounds WHERE created_by = :id", id=accounts["Morgan"]) == (1,)
+    # The three weekly rounds, all made by Morgan, and Ben's offer waiting for Carla.
+    assert _one(online, "SELECT count(*) FROM rounds WHERE created_by = :id", id=accounts["Morgan"]) == (3,)
+    assert _one(online, "SELECT proposer_id, status FROM offers WHERE id = 'offer-demo-ben'") == (accounts["Ben"], "pending")
 
 
 def test_reset_keeps_other_accounts_but_replaces_their_data(demo, online):
@@ -160,3 +162,12 @@ def test_the_sql_file_in_the_repo_matches_the_demo_data(demo):
         return re.sub(r"timestamp '[^']+'", "timestamp '…'", sql)
 
     assert without_times(fresh) == without_times(in_repo)
+
+
+def test_in_the_sql_version_round_names_follow_the_handoff_day(demo):
+    sql = reset_online_demo.reset_sql(demo, datetime(2026, 11, 23, tzinfo=timezone.utc))
+
+    # "Weekly swap · 26 Nov" made on 23 Nov becomes "Weekly swap · 7 Dec" if the SQL runs on 4 Dec.
+    assert "'Weekly swap · ' || to_char(timestamp '" in sql
+    assert "+ shift * interval '1 day', 'FMDD Mon')" in sql
+    assert "'Weekly swap · " not in sql.replace("'Weekly swap · ' ||", "")  # never a fixed date

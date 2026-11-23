@@ -146,6 +146,8 @@ def reset(demo: Engine, online: Engine) -> dict[str, int]:
 # --- The same reset as SQL, for Supabase's SQL Editor ----------------------
 
 TIMESTAMP = re.compile(r"^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(\.\d+)?Z$")
+# A round named after its handoff day, like "Weekly swap · 26 Nov".
+DATED_NAME = re.compile(r"^(.*) · \d{1,2} [A-Z][a-z]{2}$")
 
 
 def _sql_literal(value) -> str:
@@ -179,6 +181,17 @@ def reset_sql(demo: Engine, today: datetime) -> str:
                 "'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')"
             )
         return _sql_literal(item)
+
+    def round_name(row: dict) -> str:
+        """A round named after its handoff day keeps that day when the dates move."""
+        match = DATED_NAME.match(row["name"])
+        meet = TIMESTAMP.match(row["meet_time"] or "")
+        if not (match and meet):
+            return value(row["name"])
+        return (
+            f"{_sql_literal(match[1] + ' · ')} || to_char(timestamp '{meet[1]} {meet[2]}' "
+            "+ shift * interval '1 day', 'FMDD Mon')"
+        )
 
     names = ", ".join(person["display_name"] for person in people)
     lines = [
@@ -226,7 +239,13 @@ def reset_sql(demo: Engine, today: datetime) -> str:
             columns = list(rows[table][0])
             quoted = ", ".join(f'"{column}"' for column in columns)
             values = ",\n".join(
-                "        (" + ", ".join(value(row[column]) for column in columns) + ")" for row in rows[table]
+                "        ("
+                + ", ".join(
+                    round_name(row) if (table, column) == ("rounds", "name") else value(row[column])
+                    for column in columns
+                )
+                + ")"
+                for row in rows[table]
             )
             lines.append(f"    INSERT INTO {table} ({quoted}) VALUES\n{values};")
     lines += [

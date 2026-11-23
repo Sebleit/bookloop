@@ -1,4 +1,4 @@
-# Person 1 owns this file: demo users, courses, books and copies.
+# Demo users, courses, books and copies.
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 

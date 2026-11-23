@@ -182,10 +182,7 @@ def test_in_a_round_loop_my_swaps_asks_who_did_not_come(demo_data, database):
 
 
 def test_a_student_accepts_an_offer_and_sees_who_gives_what(demo_swaps):
-    from bookloop.storage import swaps_repo
-
-    swaps_repo.create_offer("user-ben", "copy-14", "copy-15", "2099-01-01T00:00:00Z")
-    carla = demo_user("user-carla", "Carla")
+    carla = demo_user("user-carla", "Carla")  # the demo data has Ben's offer waiting for her
 
     app = open_app(carla)
     app.switch_page("pages/3_Offers.py").run()

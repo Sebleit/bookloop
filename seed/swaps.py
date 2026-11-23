@@ -1,4 +1,4 @@
-# Person 2 owns this file: demo direct swaps.
+# Demo direct swaps.
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
@@ -14,8 +14,16 @@ def _next_full_hour() -> str:
     return in_an_hour.replace(minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def _ben_offer_times() -> tuple[str, str]:
+    """Ben made his offer yesterday at 16:00; it expires 72 hours later."""
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    made = today - timedelta(days=1) + timedelta(hours=16)
+    return tuple(moment.isoformat().replace("+00:00", "Z") for moment in (made, made + timedelta(hours=72)))
+
+
 def seed(connection: Connection) -> None:
-    """Insert one completed and one pending direct swap for the demo."""
+    """Insert one completed and one pending direct swap for the demo, and an offer
+    waiting for Carla's answer (Ben's They Say / I Say for her Business Essentials)."""
     offers = [
         {
             "id": "offer-demo-completed",
@@ -36,6 +44,18 @@ def seed(connection: Connection) -> None:
             "expires_at": PENDING_EXPIRES_AT,
         },
     ]
+    made, expires = _ben_offer_times()
+    offers.append(
+        {
+            "id": "offer-demo-ben",
+            "proposer_id": "user-ben",
+            "offered_copy_id": "copy-14",  # They Say / I Say
+            "requested_copy_id": "copy-15",  # Carla's Business Essentials
+            "status": "pending",
+            "created_at": made,
+            "expires_at": expires,
+        }
+    )
     connection.execute(
         text(
             "INSERT INTO offers "

@@ -1,4 +1,4 @@
-# Person 1 owns this file: starts the app: login, sidebar, menu.
+# Starts the app: login, sidebar, menu.
 import streamlit as st
 
 from bookloop import auth

@@ -1,4 +1,4 @@
-# Person 2 owns this file: swap database operations.
+# Swap database operations.
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from secrets import randbelow

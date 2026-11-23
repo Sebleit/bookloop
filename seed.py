@@ -1,4 +1,4 @@
-# Person 1 owns this file: rebuilds the local database with demo data.
+# Rebuilds the local database with demo data.
 from pathlib import Path
 
 from bookloop.storage.db import _create_engine

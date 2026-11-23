@@ -623,11 +623,14 @@ def test_the_demo_loop_is_listed_in_order_around_the_circle(database):
 PAGE = Path(__file__).resolve().parents[1] / "pages" / "4_Swap_Round.py"
 
 
-def open_page(user) -> AppTest:
-    """Open the Swap Round page logged in as `user` (laptop mode, test database)."""
+def open_page(user, round_id: str | None = None) -> AppTest:
+    """Open the Swap Round page logged in as `user` (laptop mode, test database),
+    showing `round_id` (otherwise the newest round, as the page does)."""
     page = AppTest.from_file(str(PAGE), default_timeout=30)
     page.session_state["current_user"] = user
     page.session_state["_auth_mode"] = "laptop"
+    if round_id:
+        page.session_state["swap_round_shown"] = round_id
     return page.run()
 
 
@@ -642,7 +645,7 @@ def test_page_lets_a_student_choose_wants_in_the_demo_round(database):
     load_demo_data(database)
     ana = seed_profile("user-ana", "Ana")
 
-    page = open_page(ana)
+    page = open_page(ana, "round-demo")
 
     assert not page.exception
     (wants,) = page.multiselect
@@ -654,7 +657,7 @@ def test_page_lets_a_moderator_run_the_demo_round_and_shows_results(database):
     load_demo_data(database)
     moderator = seed_profile("user-moderator", "Morgan", role="moderator")
 
-    page = open_page(moderator)
+    page = open_page(moderator, "round-demo")
     page = next(button for button in page.button if button.label == "Run round").click().run()
 
     assert not page.exception
@@ -662,9 +665,9 @@ def test_page_lets_a_moderator_run_the_demo_round_and_shows_results(database):
     assert "**Loop 1:** Ana → Farah → Eli → Ana" in [text.value for text in page.markdown]
     assert "Eli gives “Calculus: Early Transcendentals” to Ana" in [text.value for text in page.caption]
     assert "This round created 1 loop." in [text.value for text in page.markdown]
-    ana_page = open_page(seed_profile("user-ana", "Ana"))
+    ana_page = open_page(seed_profile("user-ana", "Ana"), "round-demo")
     assert ana_page.success[0].value == "You're in a swap loop!"
-    ben_page = open_page(seed_profile("user-ben", "Ben"))
+    ben_page = open_page(seed_profile("user-ben", "Ben"), "round-demo")
     assert "back on your shelf" in ben_page.info[0].value
 
 
@@ -672,7 +675,7 @@ def test_page_shows_what_is_saved_and_confirms_a_new_save(database):
     load_demo_data(database)
     ana = seed_profile("user-ana", "Ana")
 
-    page = open_page(ana)
+    page = open_page(ana, "round-demo")
     captions = [text.value for text in page.caption]
     assert "✅ Saved: you'd accept 1 book. You can change it until wants close." in captions
 

@@ -1,1 +1,1 @@
-# Person 1 owns this file: makes service modules importable.
+# Makes service modules importable.

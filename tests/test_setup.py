@@ -1,4 +1,4 @@
-# Person 1 owns this file: tests for project setup.
+# Tests for project setup.
 from dataclasses import fields, is_dataclass
 from types import SimpleNamespace
 

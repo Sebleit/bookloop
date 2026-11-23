@@ -1,4 +1,4 @@
-# Person 2 owns this file: statistics database operations.
+# Statistics database operations.
 import csv
 from io import StringIO
 

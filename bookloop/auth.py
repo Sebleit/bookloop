@@ -1,4 +1,4 @@
-# Person 1 owns this file: login, current user and role checks.
+# Login, current user and role checks.
 import os
 from typing import Any
 
