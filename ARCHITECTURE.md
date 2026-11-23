@@ -78,7 +78,7 @@ The tables are defined in `db/migrations/001_init.sql` (16 tables, with foreign 
 - **Pages:** opened with Streamlit's test tool (`AppTest`) as different users, including a few demo steps.
 - **Open Library:** faked responses (found, unknown ISBN, timeout, error), so the tests don't need the internet.
 
-**Not covered by automatic tests:** the real PostgreSQL/Supabase database and its row-level security, the real Supabase login, the real Open Library, and a real browser. Streamlit's test tool can't follow a click on the login form into the menu or open a page by its address, so those were checked by hand in a browser: logging in, links to a page while logged out, and Log out.
+**Not covered by automatic tests:** the real PostgreSQL/Supabase database and its row-level security, the real Supabase login, the real Open Library, and a real browser. The online demo reset (`reset_online_demo.py`) and the demo steps were tried by hand on a real PostgreSQL set up with `db/supabase_only.sql`. Streamlit's test tool can't follow a click on the login form into the menu or open a page by its address, so those were checked by hand in a browser: logging in, links to a page while logged out, and Log out.
 
 ## Limits we know about
 

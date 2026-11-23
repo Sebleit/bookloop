@@ -60,6 +60,15 @@ The online app runs on Streamlit Community Cloud, with its data in Supabase (a P
 - To set up a new Supabase project, run `db/migrations/001_init.sql` and then `db/supabase_only.sql` (row-level security) in its SQL editor. To make someone a moderator, change their `role` to `moderator` in the `profiles` table.
 - A free Supabase project pauses after a week without activity. Open its dashboard before a demo.
 
+**Demo data online.** Sign up once on the live app for each demo person, with these first names: Morgan, Ana, Ben, Carla, Dina, Eli and Farah. Then, with `DATABASE_URL` set to the online database:
+
+```bash
+uv run python reset_online_demo.py        # checks the demo accounts, changes nothing
+uv run python reset_online_demo.py --yes  # resets the online demo data
+```
+
+The reset deletes every book, swap, round, review and notification online (accounts are kept) and loads the same demo data as `seed.py`, linked to those accounts. Morgan becomes the moderator.
+
 ## Where things are
 
 ```
