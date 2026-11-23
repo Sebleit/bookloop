@@ -1,4 +1,4 @@
-# Person 1 owns this file: tests for login setup.
+# Tests for login setup.
 from bookloop.auth import _save_dev_login
 
 

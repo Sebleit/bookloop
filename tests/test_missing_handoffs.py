@@ -53,6 +53,11 @@ def code_for(trade_id: str) -> str:
         ).scalar_one()
 
 
+def reports_about(loop_id: str) -> list:
+    """Open reports for one swap (the demo data has one of its own, last week's)."""
+    return [report for report in reviews_repo.problem_reports() if report.loop_id == loop_id]
+
+
 def open_app(user: Profile, page: str) -> AppTest:
     app = AppTest.from_file(str(APP), default_timeout=30)
     app.session_state["current_user"] = user
@@ -106,7 +111,7 @@ def test_a_missing_handoff_goes_to_the_moderators_and_cancels_nothing(demo):
 
     reviews_repo.report_missing_handoff("loop-demo-pending", "user-carla", "user-dina")
 
-    (report,) = reviews_repo.problem_reports()
+    (report,) = reports_about("loop-demo-pending")
     assert (report.reporter_name, report.giver_name, report.receiver_name, report.title) == (
         "Carla",
         "Dina",
@@ -119,7 +124,8 @@ def test_a_missing_handoff_goes_to_the_moderators_and_cancels_nothing(demo):
         reviews_repo.report_missing_handoff("loop-demo-pending", "user-carla", "user-dina")
 
     reviews_repo.resolve_flag("user-moderator", report.trade_id)
-    assert reviews_repo.problem_reports() == []
+    assert reports_about("loop-demo-pending") == []
+    assert [report.loop_id for report in reviews_repo.problem_reports()] == ["loop-last"]  # the demo's own
 
 
 def test_in_a_round_loop_anyone_can_report_who_did_not_hand_over(demo):
@@ -130,7 +136,7 @@ def test_in_a_round_loop_anyone_can_report_who_did_not_hand_over(demo):
 
     reviews_repo.report_missing_handoff(ana_to_farah.loop_id, "user-eli", "user-farah")
 
-    (report,) = reviews_repo.problem_reports()
+    (report,) = reports_about(ana_to_farah.loop_id)
     assert (report.reporter_name, report.giver_name, report.receiver_name) == ("Eli", "Farah", "Eli")
 
 
@@ -221,7 +227,7 @@ def test_my_swaps_offers_report_a_problem_once_a_book_has_changed_hands(demo):
 
     assert not app.exception
     assert [message.value for message in app.success] == ["Thanks. A moderator will check what happened with Dina."]
-    assert len(reviews_repo.problem_reports()) == 1
+    assert len(reports_about("loop-demo-pending")) == 1
 
 
 def test_before_any_handoff_my_swaps_still_offers_a_no_show(demo):
@@ -242,20 +248,23 @@ def test_the_moderator_sees_the_report_with_the_picture_and_can_resolve_it(demo)
     assert any(
         "**Carla** says **Dina** didn't hand over “A Mind for Numbers”" in text.value for text in app.markdown
     )
-    (picture,) = [text.value for text in app.markdown if text.value.startswith("<svg")]
-    assert "Swap: Carla → Dina → Carla" in picture
+    pictures = [text.value for text in app.markdown if text.value.startswith("<svg")]
+    assert any("Swap: Carla → Dina → Carla" in picture for picture in pictures)
+    assert any("Swap: Ana → Farah → Ben → Ana" in picture for picture in pictures)  # last week's, in the demo data
 
     resolve = next(
-        button for button in app.button if button.label == "Mark as resolved" and "problem" in button.key
+        button for button in app.button
+        if button.label == "Mark as resolved" and button.key == "resolve_problem_trade-demo-pending-b"
     )
     app = resolve.click().run()
 
     assert not app.exception
-    assert reviews_repo.problem_reports() == []
+    assert reports_about("loop-demo-pending") == []
 
 
 def test_the_swap_round_page_draws_the_loop_for_the_moderator(demo):
     app = open_app(MORGAN, "pages/4_Swap_Round.py")
+    app = app.selectbox[0].set_value("round-demo").run()  # this week's round, ready to run
     app = next(button for button in app.button if button.label == "Run round").click().run()
 
     assert not app.exception

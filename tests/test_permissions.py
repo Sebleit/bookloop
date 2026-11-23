@@ -1,4 +1,4 @@
-# Person 2 owns this file: tests for permissions.
+# Tests for permissions.
 import pytest
 from streamlit.runtime.scriptrunner import StopException
 
