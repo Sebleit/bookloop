@@ -14,6 +14,48 @@ NOTES = {
 }
 STUDENTS = ("Ana", "Ben", "Carla", "Dina", "Eli", "Farah")
 
+# More classmates, so rounds and Browse look like a real course. They never log
+# in during the demo, so they have no account online: the reset creates them.
+# Their ids start with "extra-" so it can tell them apart.
+CLASSMATES = (
+    "Afonso", "Beatriz", "Diogo", "Gonçalo", "Hugo", "Inês", "Joana",
+    "Leonor", "Marta", "Miguel", "Nuno", "Rita", "Sofia", "Tiago",
+)
+NO_LOGIN_PREFIX = "extra-"
+
+# Each classmate's books: (copy, owner, book, condition). The first one of each
+# goes into a swap round (seed/rounds.py); the others stay on their shelves.
+CLASSMATE_COPIES = (
+    ("copy-26", "Afonso", "book-10", 3),  # Biology
+    ("copy-27", "Beatriz", "book-13", 4),  # Psychology
+    ("copy-28", "Diogo", "book-15", 2),  # Business Essentials
+    ("copy-29", "Gonçalo", "book-02", 3),  # Python Crash Course
+    ("copy-30", "Hugo", "book-07", 4),  # The Economics Book
+    ("copy-31", "Inês", "book-06", 3),  # Principles of Economics
+    ("copy-32", "Joana", "book-01", 2),  # Introduction to Algorithms
+    ("copy-33", "Leonor", "book-09", 3),  # A Little History of the World
+    ("copy-34", "Marta", "book-03", 4),  # Automate the Boring Stuff with Python
+    ("copy-35", "Miguel", "book-12", 3),  # University Physics
+    ("copy-36", "Nuno", "book-05", 2),  # Calculus: Early Transcendentals
+    ("copy-37", "Rita", "book-08", 3),  # World History: Patterns of Interaction
+    ("copy-38", "Sofia", "book-04", 4),  # A Mind for Numbers
+    ("copy-39", "Tiago", "book-14", 3),  # They Say / I Say
+    ("copy-40", "Joana", "book-11", 3),  # Chemistry: The Central Science
+    ("copy-41", "Miguel", "book-03", 2),  # Automate the Boring Stuff with Python
+    ("copy-42", "Sofia", "book-08", 4),  # World History: Patterns of Interaction
+    ("copy-43", "Hugo", "book-02", 1),  # Python Crash Course
+    ("copy-44", "Marta", "book-06", 4),  # Principles of Economics
+    ("copy-45", "Nuno", "book-13", 3),  # Psychology
+    ("copy-46", "Inês", "book-05", 2),  # Calculus: Early Transcendentals
+    ("copy-47", "Rita", "book-10", 4),  # Biology
+)
+
+
+def classmate_id(name: str) -> str:
+    """'Gonçalo' -> 'extra-goncalo'."""
+    plain = name.lower().replace("ç", "c").replace("ê", "e").replace("é", "e").replace("í", "i")
+    return f"{NO_LOGIN_PREFIX}{plain}"
+
 # Real Nova SBE bachelor's courses, with their codes from the course catalogue
 # (guia.unl.pt, 2023). Students can add more on My Shelf.
 COURSES = (
@@ -113,6 +155,16 @@ def seed(connection: Connection) -> None:
         }
         for name in STUDENTS
     )
+    profiles.extend(
+        {
+            "id": classmate_id(name),
+            "display_name": name,
+            "role": "student",
+            "status": "active",
+            "created_at": CREATED_AT,
+        }
+        for name in CLASSMATES
+    )
     connection.execute(
         text(
             "INSERT INTO profiles (id, display_name, role, status, created_at) "
@@ -170,6 +222,19 @@ def seed(connection: Connection) -> None:
                 "condition": index % 4 + 1,
                 "highlighting": HIGHLIGHTING[index % len(HIGHLIGHTING)],
                 "notes": None if index % 3 == 0 else NOTES[index % 4 + 1],
+                "status": "available",
+                "created_at": CREATED_AT,
+            }
+        )
+    for copy_id, owner, book, condition in CLASSMATE_COPIES:
+        copies.append(
+            {
+                "id": copy_id,
+                "book_id": book,
+                "owner_id": classmate_id(owner),
+                "condition": condition,
+                "highlighting": HIGHLIGHTING[condition % len(HIGHLIGHTING)],
+                "notes": NOTES[condition] if condition != 3 else None,
                 "status": "available",
                 "created_at": CREATED_AT,
             }
