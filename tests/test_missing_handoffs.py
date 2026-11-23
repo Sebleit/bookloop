@@ -157,6 +157,7 @@ def test_the_picture_has_an_arrow_per_book_coloured_by_what_happened(demo):
     dot = loop_dot(rounds_repo.loop_trades("loop-demo-pending"))
 
     assert dot.startswith("digraph swap {")
+    assert "rankdir=LR" in dot  # people left to right, so the book labels never overlap
     assert '"Carla" -> "Dina"' in dot and '"Dina" -> "Carla"' in dot
     assert "Automate the Boring Stuff with Python\\nhanded over" in dot
     assert "A Mind for Numbers\\nwaiting" in dot

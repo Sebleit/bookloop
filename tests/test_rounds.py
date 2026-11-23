@@ -5,6 +5,7 @@ rules, rounds and entries are only needed in memory, so the helpers below
 build them. All times are fixed so the tests give the same result on any day.
 """
 
+import runpy
 from copy import deepcopy
 from pathlib import Path
 
@@ -665,3 +666,32 @@ def test_page_lets_a_moderator_run_the_demo_round_and_shows_results(database):
     assert ana_page.success[0].value == "You're in a swap loop!"
     ben_page = open_page(seed_profile("user-ben", "Ben"))
     assert "back on your shelf" in ben_page.info[0].value
+
+
+def test_page_shows_what_is_saved_and_confirms_a_new_save(database):
+    load_demo_data(database)
+    ana = seed_profile("user-ana", "Ana")
+
+    page = open_page(ana)
+    captions = [text.value for text in page.caption]
+    assert "✅ Saved: you'd accept 1 book. You can change it until wants close." in captions
+
+    page.multiselect[0].set_value(["entry-eli", "entry-farah"])
+    page = next(button for button in page.button if button.label == "Save").click().run()
+
+    assert not page.exception
+    assert page.success[0].value.startswith("Saved: 2 books you'd accept for")
+    assert page.toast[0].value.startswith("Saved: 2 books you'd accept for")  # pops up in the corner
+    captions = [text.value for text in page.caption]
+    assert "✅ Saved: you'd accept 2 books. You can change it until wants close." in captions
+
+
+def test_saved_wants_line_says_when_nothing_is_saved_and_shows_the_minimum_score():
+    module = runpy.run_path(str(PAGE), run_name="not_main")
+    saved_text = module["_saved_wants_text"]
+
+    assert saved_text(0, 0.0) == "Nothing saved yet: tick the books you'd accept, then click Save."
+    assert saved_text(3, 4.0) == (
+        "✅ Saved: you'd accept 3 books, from people scoring at least 4.00. "
+        "You can change it until wants close."
+    )

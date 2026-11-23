@@ -1,8 +1,10 @@
 """The picture of a swap, for moderators: who gives which book to whom.
 
-Each person is a circle and each book an arrow from the giver to the
-receiver, coloured by what has happened: green once it was handed over, grey
-while it's still waiting, red if the swap was cancelled. Streamlit draws it
+People are circles, placed left to right, and each book is an arrow from
+the giver to the receiver, labelled with its title and coloured by what has
+happened: green once it was handed over, grey while it's still waiting, red if
+the swap was cancelled. (Left to right keeps every label clear of the others,
+even when two people swap with each other.) Streamlit draws it
 with st.graphviz_chart; this module only writes the Graphviz text, so it can
 be tested without a browser.
 """
@@ -34,9 +36,9 @@ def loop_dot(trades: Sequence[_Trade]) -> str:
     """Graphviz text for one loop: a circle of people with an arrow per book."""
     lines = [
         "digraph swap {",
-        "  layout=circo;",
-        '  node [shape=circle, fixedsize=true, width=0.9, style=filled, fillcolor="#eef1f6", '
-        'color="#8a94a6", fontname="Helvetica"];',
+        "  rankdir=LR; nodesep=0.9; ranksep=2.2;",
+        '  node [shape=circle, fixedsize=true, width=0.75, style=filled, fillcolor="#eef1f6", '
+        'color="#8a94a6", fontname="Helvetica", fontsize=12];',
         '  edge [fontname="Helvetica", fontsize=10, penwidth=2];',
     ]
     for trade in trades:
