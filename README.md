@@ -20,7 +20,7 @@ Students swap textbooks with each other: no money, just books for books.
 - **Direct swaps.** Offer one of your books for someone else's. They accept, decline, or let it expire after 72 hours.
 - **Swap rounds.** Everyone puts in books and ticks the ones they'd accept. The app finds loops (Ana → Farah → Eli → Ana), so three or more people can swap when no two of them could swap directly.
 - **Safe handoffs.** At the meeting, the giver types the receiver's 4-digit code. That proves the meeting happened and moves the book to its new owner. Three wrong codes lock the trade.
-- **Reviews and Swapper Score.** The receiver rates whether the book matched its description. Reviews stay hidden until everyone in the swap has reviewed (or 7 days pass), and they build each person's score and badge (New, Trusted, Under review).
+- **Reviews and Swapper Score.** The receiver reviews the giver in two parts: stars for the swap (the person and the meeting) and the condition the book arrived in. Reviews stay hidden until everyone in the swap has reviewed, or the 14 days for reviewing end, so nobody can review in revenge. They build each person's score and badge (New, Trusted, Under review).
 - **Moderation.** Moderators see books that arrived 2+ conditions worse than listed, clear or suspend users, hide abusive reviews, and see community stats.
 
 ## Run it on your laptop
@@ -60,14 +60,18 @@ The online app runs on Streamlit Community Cloud, with its data in Supabase (a P
 - To set up a new Supabase project, run `db/migrations/001_init.sql` and then `db/supabase_only.sql` (row-level security) in its SQL editor. To make someone a moderator, change their `role` to `moderator` in the `profiles` table.
 - A free Supabase project pauses after a week without activity. Open its dashboard before a demo.
 
-**Demo data online.** Sign up once on the live app for each demo person, with these first names: Morgan, Ana, Ben, Carla, Dina, Eli and Farah. Then, with `DATABASE_URL` set to the online database:
+**Demo data online.** Sign up once on the live app for each demo person, with these first names: Morgan, Ana, Ben, Carla, Dina, Eli and Farah. Then reset the demo data in one of two ways:
 
-```bash
-uv run python reset_online_demo.py        # checks the demo accounts, changes nothing
-uv run python reset_online_demo.py --yes  # resets the online demo data
-```
+- **In Supabase (no setup needed):** open the SQL Editor, paste all of `db/demo_reset.sql` and run it. It works on any day, because every demo date moves to the day it runs.
+- **From a laptop**, with `DATABASE_URL` set to the online database:
+  ```bash
+  uv run python reset_online_demo.py        # checks the demo accounts, changes nothing
+  uv run python reset_online_demo.py --yes  # resets the online demo data
+  ```
 
-The reset deletes every book, swap, round, review and notification online (accounts are kept) and loads the same demo data as `seed.py`, linked to those accounts. Morgan becomes the moderator.
+The reset deletes every book, swap, round, review and notification online (accounts are kept) and loads the same demo data as `seed.py`, linked to those accounts. Morgan becomes the moderator. It's one transaction: if anything fails, nothing changes.
+
+Email confirmation is off in Supabase (Authentication → Sign In / Providers) for the demo: Supabase's free email sender only emails the project's own team, at most 2 emails an hour. With real users we'd connect an email service and turn it back on.
 
 ## Where things are
 
@@ -80,7 +84,7 @@ bookloop/
   services/      notifications and the Open Library lookup
   auth.py        login and role checks
   models.py      the data shapes (Profile, Book, Copy, Trade, ...)
-db/              the database tables (001_init.sql) and Supabase security rules
+db/              the database tables (001_init.sql), Supabase security rules, and the online demo reset (demo_reset.sql)
 seed.py, seed/   demo data for the laptop database
 tests/           the tests
 ```
