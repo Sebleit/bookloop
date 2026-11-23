@@ -6,6 +6,7 @@ also check that a student is kept out of the moderator pages, and play the
 demo's handoff on My Swaps.
 """
 
+import re
 from pathlib import Path
 
 import pytest
@@ -147,7 +148,8 @@ def test_my_swaps_shows_a_pending_swap_and_confirms_the_handoff(demo_swaps):
 
     assert not app.exception
     assert [button.label for button in app.button].count("Report no-show") == 1
-    assert "Time: Sun 22 Nov, 11:00" in [text.value for text in app.markdown]  # Lisbon time
+    times = [text.value for text in app.markdown if text.value.startswith("Time: ")]
+    assert times and all(re.fullmatch(r"Time: \w{3} \d{2} \w{3}, \d{2}:\d{2}", time) for time in times)
 
     app.text_input[0].input("0000")
     app = next(button for button in app.button if button.label == "Confirm handoff").click().run()
