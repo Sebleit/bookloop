@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 import streamlit as st
 
 from bookloop import auth
+from bookloop.rules.copies import CONDITIONS
 from bookloop.rules.offers import can_make_offer
 from bookloop.storage.reviews_repo import is_blocked
 from bookloop.storage.swaps_repo import (
@@ -18,7 +19,8 @@ from bookloop.storage.swaps_repo import (
 
 def _copy_label(item: dict) -> str:
     copy = item["copy"]
-    return f"{item['title']} — condition {copy.condition}, copy {copy.id}"
+    condition = CONDITIONS.get(copy.condition, "unknown condition")
+    return f"{item['title']} — condition: {condition}, owner: {item['owner_name']}"
 
 
 def main() -> None:
