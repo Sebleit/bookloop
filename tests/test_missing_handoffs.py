@@ -7,13 +7,14 @@ typed, everyone was there: a missing book is reported to a moderator, who
 checks what happened, with a picture of the swap.
 """
 
+import re
 from pathlib import Path
 
 import pytest
 from sqlalchemy import text
 from streamlit.testing.v1 import AppTest
 
-from bookloop.loop_picture import loop_dot
+from bookloop.loop_picture import BOX_WIDTH, MAX_NAME, MAX_TITLE, SLOT_WIDTH, WIDTH, Layout, loop_svg
 from bookloop.models import Loop, Profile, Trade
 from bookloop.rules.handoffs import can_report_missing_handoff, no_show_outcome
 from bookloop.services.notify import get_notifications
@@ -154,24 +155,53 @@ def _round_trades(round_id: str) -> list[Trade]:
 def test_the_picture_has_an_arrow_per_book_coloured_by_what_happened(demo):
     swaps_repo.confirm_handoff("trade-demo-pending-a", "user-carla", "3333")
 
-    dot = loop_dot(rounds_repo.loop_trades("loop-demo-pending"))
+    svg = loop_svg(rounds_repo.loop_trades("loop-demo-pending"))
 
-    assert dot.startswith("digraph swap {")
-    assert "rankdir=LR" in dot  # people left to right, so the book labels never overlap
-    assert '"Carla" -> "Dina"' in dot and '"Dina" -> "Carla"' in dot
-    assert "Automate the Boring Stuff with Python\\nhanded over" in dot
-    assert "A Mind for Numbers\\nwaiting" in dot
-    assert dot.count("#2e7d32") == 2  # green line and label for the book handed over
+    assert svg.startswith("<svg") and svg.endswith("</svg>")
+    assert 'aria-label="Swap: Carla → Dina → Carla"' in svg
+    # Carla's book was handed over (green), Dina's is still waiting (grey)
+    assert re.search(r'fill="#2e7d32"><text [^>]*>Automate the Boring Stuff w…</text>', svg)
+    assert re.search(r'fill="#757575"><text [^>]*>A Mind for Numbers</text>', svg)
+    assert ">handed over</text>" in svg and ">waiting</text>" in svg
 
 
-def test_names_with_quotes_cannot_break_the_picture():
+def test_long_titles_and_names_are_cut_but_shown_in_full_when_hovering():
     class Step:
-        title, giver_name, receiver_name, status = 'The "Best" Book', 'Al "Q" B', "Bo\\b", "pending"
+        def __init__(self, title, giver, receiver):
+            self.title, self.giver_name, self.receiver_name, self.status = title, giver, receiver, "pending"
 
-    dot = loop_dot([Step()])
+    title = "World History: Patterns of Interaction"
+    svg = loop_svg([Step(title, "Maria Margarida S.", "Bo"), Step("Short", "Bo", "Maria Margarida S.")])
 
-    assert '"Al \\"Q\\" B" -> "Bo\\\\b"' in dot
-    assert 'The \\"Best\\" Book' in dot
+    assert ">World History: Patterns of…</text>" in svg  # cut to 28 characters
+    assert ">Maria Margari…</text>" in svg  # cut to 14 characters
+    assert f"<title>{title} (waiting): Maria Margarida S. → Bo</title>" in svg  # full text on hover
+    assert "<title>Maria Margarida S.</title>" in svg
+
+
+def test_names_and_titles_cannot_break_the_picture():
+    class Step:
+        title, giver_name, receiver_name, status = '<b>"Best" & Co</b>', "Al <script>", "Bo", "lost"
+
+    svg = loop_svg([Step(), Step()])
+
+    assert "<script>" not in svg and "<b>" not in svg
+    assert "&lt;b&gt;&quot;Best&quot; &amp; Co&lt;/b&gt;" in svg
+    assert ">waiting</text>" in svg  # an unknown status is drawn as waiting
+
+
+@pytest.mark.parametrize("people", [2, 3, 4, 5, 6])
+def test_nothing_in_the_picture_can_overlap(people):
+    layout = Layout(people)
+    boxes = layout.boxes()
+
+    for number, box in enumerate(boxes):
+        assert 0 <= box.x and box.x + box.width <= WIDTH
+        assert 0 <= box.y and box.y + box.height <= layout.height
+        assert not any(box.overlaps(other) for other in boxes[number + 1:])
+    # The longest title and name shown fit their space, even with wide letters (0.62 of the font size each).
+    assert MAX_TITLE * 13 * 0.62 <= SLOT_WIDTH - 8
+    assert MAX_NAME * 14 * 0.62 <= BOX_WIDTH - 16
 
 
 # --- Pages -----------------------------------------------------------------
@@ -212,7 +242,8 @@ def test_the_moderator_sees_the_report_with_the_picture_and_can_resolve_it(demo)
     assert any(
         "**Carla** says **Dina** didn't hand over “A Mind for Numbers”" in text.value for text in app.markdown
     )
-    assert len(app.get("graphviz_chart")) == 1
+    (picture,) = [text.value for text in app.markdown if text.value.startswith("<svg")]
+    assert "Swap: Carla → Dina → Carla" in picture
 
     resolve = next(
         button for button in app.button if button.label == "Mark as resolved" and "problem" in button.key
@@ -228,6 +259,6 @@ def test_the_swap_round_page_draws_the_loop_for_the_moderator(demo):
     app = next(button for button in app.button if button.label == "Run round").click().run()
 
     assert not app.exception
-    (chart,) = app.get("graphviz_chart")
-    assert '"Ana" -> "Farah"' in chart.proto.spec
+    (picture,) = [text.value for text in app.markdown if text.value.startswith("<svg")]
+    assert "Swap: Ana → Farah → Eli → Ana" in picture
     assert "Green: handed over. Grey: waiting. Red: cancelled." in [text.value for text in app.caption]
