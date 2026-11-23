@@ -1,4 +1,4 @@
-# Person 1 owns this file: dataclasses for database tables.
+# Dataclasses for database tables.
 from dataclasses import dataclass
 
 
