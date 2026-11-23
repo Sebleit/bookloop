@@ -1,17 +1,22 @@
-"""Demo data: a swap round that is ready to run.
+"""Demo data: three weekly swap rounds, each at a different moment.
 
-Eli, Farah and Ana each want the next person's book, but no two of them want
-each other's, so no direct swap is possible. When the moderator runs the
-round, the loop finder finds the 3-way loop:
+Rounds run every week, so the demo can show every step without waiting:
 
-    Eli gets Farah's book, Farah gets Ana's, and Ana gets Eli's.
+- Last week's round has run: Ben, Ana and Farah met, Ben's and Ana's books
+  changed hands, but Farah didn't hand over hers, and Ben reported it. The
+  moderator sees it under "Books not handed over". Eli's book had no match.
+- This week's round is ready to run. Eli, Farah and Ana each want the next
+  person's book, but no two of them want each other's, so no direct swap is
+  possible. When the moderator runs it, the loop finder finds the 3-way loop:
+  Eli gets Farah's book, Farah gets Ana's, and Ana gets Eli's. Ben also wants
+  Eli's book, but nobody wants Ben's, so his book goes back on his shelf.
+- Next week's round is open for books: Ana, Ben and Farah have entered one
+  each, so a student can enter theirs, the moderator can close entries, and
+  everyone can tick what they'd accept.
 
-Ben also wants Eli's book, but nobody wants Ben's, so Ben gets no match and
-his book goes back on his shelf. That shows both results in the demo.
-
-The round's dates follow the day the demo data is built (entries closed
-yesterday, wants close in two days, the meeting is in three days), so they
-never look out of date, whenever the demo happens.
+Each round is named after its handoff day ("Weekly swap · 26 Nov"). The dates
+follow the day the demo data is built, so they never look out of date,
+whenever the demo happens.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -19,21 +24,30 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from bookloop.storage.reviews_repo import MISSING_HANDOFF
 
-DEMO_ROUND = {
-    "id": "round-demo",
-    "name": "Winter textbook swap",
-    "phase": "wants",
-    "meet_place": "Nova SBE library, ground floor",
-    "created_by": "user-moderator",
-}
+PLACE = "Nova SBE library, ground floor"
 
-# (entry id, copy id): the copies come from seed/base.py.
+# id, phase, and the days (from today) when entries close, wants close and people meet.
+ROUNDS = (
+    ("round-last", "matched", -8, -5, -4),
+    ("round-demo", "wants", -1, 2, 3),
+    ("round-next", "entries", 6, 9, 10),
+)
+
+# (entry id, round, copy id): the copies come from seed/base.py, or from LAST_COPIES below.
 ENTRIES = (
-    ("entry-eli", "copy-05"),  # Eli: Calculus: Early Transcendentals
-    ("entry-farah", "copy-06"),  # Farah: Principles of Economics
-    ("entry-ana", "copy-07"),  # Ana: The Economics Book
-    ("entry-ben", "copy-08"),  # Ben: World History: Patterns of Interaction
+    ("entry-eli", "round-demo", "copy-05"),  # Eli: Calculus: Early Transcendentals
+    ("entry-farah", "round-demo", "copy-06"),  # Farah: Principles of Economics
+    ("entry-ana", "round-demo", "copy-07"),  # Ana: The Economics Book
+    ("entry-ben", "round-demo", "copy-08"),  # Ben: World History: Patterns of Interaction
+    ("entry-last-ana", "round-last", "copy-last-ana"),
+    ("entry-last-ben", "round-last", "copy-last-ben"),
+    ("entry-last-farah", "round-last", "copy-last-farah"),
+    ("entry-last-eli", "round-last", "copy-last-eli"),
+    ("entry-next-ana", "round-next", "copy-19"),  # Ana: A Mind for Numbers
+    ("entry-next-ben", "round-next", "copy-20"),  # Ben: Calculus: Early Transcendentals
+    ("entry-next-farah", "round-next", "copy-12"),  # Farah: University Physics
 )
 
 # (entry, wanted entry): "I'd accept that book in return for mine".
@@ -42,25 +56,60 @@ WANTS = (
     ("entry-farah", "entry-ana"),
     ("entry-ana", "entry-eli"),
     ("entry-ben", "entry-eli"),
+    ("entry-last-ana", "entry-last-ben"),
+    ("entry-last-ben", "entry-last-farah"),
+    ("entry-last-farah", "entry-last-ana"),
+    ("entry-last-eli", "entry-last-ana"),  # nobody wants Eli's book: no match
+)
+
+# Last week's books: (copy, book, condition, highlighting, first owner, owner now, status now).
+LAST_COPIES = (
+    ("copy-last-ana", "book-10", 3, "light", "user-ana", "user-farah", "available"),  # Biology: handed over
+    ("copy-last-ben", "book-11", 4, "none", "user-ben", "user-ana", "available"),  # Chemistry: handed over
+    ("copy-last-farah", "book-13", 3, "none", "user-farah", "user-farah", "reserved"),  # Psychology: not yet
+    ("copy-last-eli", "book-01", 2, "heavy", "user-eli", "user-eli", "available"),  # no match: back on the shelf
+)
+
+# Last week's loop: (trade, copy, giver, receiver, code, handed over).
+LAST_TRADES = (
+    ("trade-last-ben", "copy-last-ben", "user-ben", "user-ana", "5151", True),
+    ("trade-last-ana", "copy-last-ana", "user-ana", "user-farah", "5252", True),
+    ("trade-last-farah", "copy-last-farah", "user-farah", "user-ben", "5353", False),
 )
 
 
-def _round_dates(now: datetime) -> dict[str, str]:
-    """Entries closed yesterday at 18:00, wants close in two days, meeting in three days."""
+def _as_text(moment: datetime) -> str:
+    return moment.isoformat().replace("+00:00", "Z")
+
+
+def round_name(meet_time: datetime) -> str:
+    """'Weekly swap · 26 Nov': named after the handoff day."""
+    return f"Weekly swap · {meet_time.day} {meet_time:%b}"
+
+
+def _round_rows(now: datetime) -> list[dict]:
     today = now.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-
-    def as_text(moment: datetime) -> str:
-        return moment.isoformat().replace("+00:00", "Z")
-
-    return {
-        "entries_close_at": as_text(today - timedelta(days=1) + timedelta(hours=18)),
-        "wants_close_at": as_text(today + timedelta(days=2, hours=18)),
-        "meet_time": as_text(today + timedelta(days=3, hours=14)),
-    }
+    rows = []
+    for round_id, phase, entries_close, wants_close, meet in ROUNDS:
+        meet_time = today + timedelta(days=meet, hours=14)
+        rows.append({
+            "id": round_id,
+            "name": round_name(meet_time),
+            "phase": phase,
+            "entries_close_at": _as_text(today + timedelta(days=entries_close, hours=18)),
+            "wants_close_at": _as_text(today + timedelta(days=wants_close, hours=18)),
+            "meet_place": PLACE,
+            "meet_time": _as_text(meet_time),
+            "created_by": "user-moderator",
+        })
+    return rows
 
 
 def seed(connection: Connection) -> None:
-    """Insert the demo round, its entries and wants, and mark the books in_round."""
+    """Insert the three rounds, their entries and wants, and last week's swap."""
+    now = datetime.now(timezone.utc)
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    rounds = _round_rows(now)
     connection.execute(
         text(
             "INSERT INTO rounds "
@@ -68,23 +117,82 @@ def seed(connection: Connection) -> None:
             "VALUES (:id, :name, :phase, :entries_close_at, :wants_close_at, "
             ":meet_place, :meet_time, :created_by)"
         ),
-        {**DEMO_ROUND, **_round_dates(datetime.now(timezone.utc))},
+        rounds,
+    )
+    connection.execute(
+        text(
+            'INSERT INTO copies (id, book_id, owner_id, "condition", highlighting, notes, status, created_at) '
+            "VALUES (:id, :book, :owner, :condition, :highlighting, NULL, :status, :at)"
+        ),
+        [
+            {"id": copy_id, "book": book, "owner": owner, "condition": condition,
+             "highlighting": highlighting, "status": status, "at": _as_text(today - timedelta(days=12) + timedelta(hours=10))}
+            for copy_id, book, condition, highlighting, _, owner, status in LAST_COPIES
+        ],
     )
     connection.execute(
         text(
             "INSERT INTO round_entries (id, round_id, copy_id, min_partner_score) "
             "VALUES (:id, :round_id, :copy_id, 0)"
         ),
-        [
-            {"id": entry_id, "round_id": DEMO_ROUND["id"], "copy_id": copy_id}
-            for entry_id, copy_id in ENTRIES
-        ],
+        [{"id": entry_id, "round_id": round_id, "copy_id": copy_id} for entry_id, round_id, copy_id in ENTRIES],
     )
+    # Books in an open round are "in_round" until it runs.
     connection.execute(
         text("UPDATE copies SET status = 'in_round' WHERE id = :copy_id"),
-        [{"copy_id": copy_id} for _, copy_id in ENTRIES],
+        [{"copy_id": copy_id} for _, round_id, copy_id in ENTRIES if round_id != "round-last"],
     )
     connection.execute(
         text("INSERT INTO round_wants (entry_id, wanted_entry_id) VALUES (:entry, :wanted)"),
         [{"entry": entry, "wanted": wanted} for entry, wanted in WANTS],
+    )
+    _seed_last_weeks_swap(connection, rounds[0], today)
+
+
+def _seed_last_weeks_swap(connection: Connection, last: dict, today: datetime) -> None:
+    """Last week's loop: two books handed over, one not, and Ben's report about it."""
+    met = datetime.fromisoformat(last["meet_time"].replace("Z", "+00:00"))
+    connection.execute(
+        text(
+            "INSERT INTO loops (id, source, offer_id, round_id, status, meet_place, meet_time, no_show_user_id) "
+            "VALUES ('loop-last', 'round', NULL, :round, 'scheduled', :place, :at, NULL)"
+        ),
+        {"round": last["id"], "place": last["meet_place"], "at": last["meet_time"]},
+    )
+    connection.execute(
+        text(
+            "INSERT INTO trades (id, loop_id, copy_id, giver_id, receiver_id, handoff_code, "
+            "code_attempts, status, completed_at) VALUES (:id, 'loop-last', :copy, :giver, "
+            ":receiver, :code, 0, :status, :done)"
+        ),
+        [
+            {"id": trade_id, "copy": copy_id, "giver": giver, "receiver": receiver, "code": code,
+             "status": "completed" if done else "pending",
+             "done": _as_text(met + timedelta(minutes=10)) if done else None}
+            for trade_id, copy_id, giver, receiver, code, done in LAST_TRADES
+        ],
+    )
+    # Ben reports that Farah didn't hand over her book: the moderator checks it.
+    reported = _as_text(met + timedelta(hours=1))
+    connection.execute(
+        text("INSERT INTO entity_ids (table_name, entity_key) VALUES ('trades', 'trade-last-farah')")
+    )
+    connection.execute(
+        text(
+            "INSERT INTO audit_log (id, actor_id, action, target_table, target_id, created_at) "
+            "VALUES ('audit-last-report', 'user-ben', :action, 'trades', 'trade-last-farah', :at)"
+        ),
+        {"action": MISSING_HANDOFF, "at": reported},
+    )
+    connection.execute(
+        text(
+            "INSERT INTO notifications (id, user_id, text, link, read, created_at) "
+            "VALUES (:id, :user, :text, NULL, 0, :at)"
+        ),
+        [
+            {"id": "note-last-moderator", "user": "user-moderator", "at": reported,
+             "text": "Ben says Farah didn't hand over “Psychology”. Check it on the Moderator page."},
+            {"id": "note-last-farah", "user": "user-farah", "at": reported,
+             "text": "Ben reported that you didn't hand over “Psychology”. A moderator will check what happened."},
+        ],
     )
