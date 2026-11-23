@@ -590,30 +590,37 @@ def seed_profile(id: str, name: str, role: str = "student") -> Profile:
     return Profile(id=id, display_name=name, role=role, status="active", created_at=seed_base.CREATED_AT)
 
 
-def test_the_demo_round_produces_a_three_way_loop(database):
+def test_the_demo_round_finds_four_loops_including_a_three_way_one(database):
     load_demo_data(database)
 
     result = rounds_repo.run_round("round-demo")
 
-    (loop,) = result.loops
+    assert len(result.loops) == 4  # Ana, Farah and Eli's loop, and three among their classmates
     eli = {(t.title, t.giver_name, t.receiver_name) for t in rounds_repo.my_trades("round-demo", "user-eli")}
     assert eli == {
         ("Calculus: Early Transcendentals", "Eli", "Ana"),
         ("Principles of Economics", "Farah", "Eli"),
     }
     assert rounds_repo.my_trades("round-demo", "user-ben") == []
-    assert result.books_returned == 1
+    assert rounds_repo.my_trades("round-demo", "extra-afonso") == []
+    assert result.books_returned == 2  # Ben's and Afonso's: nobody wanted them
 
 
-def test_the_demo_loop_is_listed_in_order_around_the_circle(database):
+def test_the_demo_loops_are_listed_smallest_first_and_in_order_around_the_circle(database):
     load_demo_data(database)
     rounds_repo.run_round("round-demo")
 
-    (loop,) = rounds_repo.loops_in_round("round-demo")
+    loops = rounds_repo.loops_in_round("round-demo")
 
-    assert [trade.giver_name for trade in loop] == ["Ana", "Farah", "Eli"]
-    for trade, following in zip(loop, loop[1:] + loop[:1]):
-        assert trade.receiver_id == following.giver_id  # each receiver gives the next book
+    assert [[trade.giver_name for trade in loop] for loop in loops] == [
+        ["Gonçalo", "Inês"],
+        ["Ana", "Farah", "Eli"],
+        ["Beatriz", "Leonor", "Diogo"],
+        ["Joana", "Tiago", "Sofia", "Miguel"],
+    ]
+    for loop in loops:
+        for trade, following in zip(loop, loop[1:] + loop[:1]):
+            assert trade.receiver_id == following.giver_id  # each receiver gives the next book
     assert rounds_repo.loops_in_round("no-such-round") == []
 
 
@@ -649,7 +656,7 @@ def test_page_lets_a_student_choose_wants_in_the_demo_round(database):
 
     assert not page.exception
     (wants,) = page.multiselect
-    assert len(wants.options) == 3  # the three books Ana doesn't own
+    assert len(wants.options) == 13  # the 13 books in the round that Ana doesn't own
     assert page.multiselect[0].value == ["entry-eli"]  # what the demo already ticked
 
 
@@ -661,10 +668,12 @@ def test_page_lets_a_moderator_run_the_demo_round_and_shows_results(database):
     page = next(button for button in page.button if button.label == "Run round").click().run()
 
     assert not page.exception
-    assert page.success[0].value.startswith("Found 1 loop: 3 books will change hands")
-    assert "**Loop 1:** Ana → Farah → Eli → Ana" in [text.value for text in page.markdown]
+    assert page.success[0].value.startswith(
+        "Found 4 loops: 12 books will change hands and 2 go back on the shelf"
+    )
+    assert "**Loop 2:** Ana → Farah → Eli → Ana" in [text.value for text in page.markdown]
     assert "Eli gives “Calculus: Early Transcendentals” to Ana" in [text.value for text in page.caption]
-    assert "This round created 1 loop." in [text.value for text in page.markdown]
+    assert "This round created 4 loops." in [text.value for text in page.markdown]
     ana_page = open_page(seed_profile("user-ana", "Ana"), "round-demo")
     assert ana_page.success[0].value == "You're in a swap loop!"
     ben_page = open_page(seed_profile("user-ben", "Ben"), "round-demo")
@@ -715,7 +724,7 @@ def test_the_page_keeps_showing_a_round_after_it_runs(database):
 
     assert not page.exception
     assert page.selectbox[0].value == "round-demo"  # still the round that just ran, now matched
-    assert "This round created 1 loop." in [text.value for text in page.markdown]
+    assert "This round created 4 loops." in [text.value for text in page.markdown]
     assert any(text.value.startswith("<svg") for text in page.markdown)  # with its picture
 
 

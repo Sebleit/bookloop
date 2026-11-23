@@ -268,6 +268,7 @@ def test_the_swap_round_page_draws_the_loop_for_the_moderator(demo):
     app = next(button for button in app.button if button.label == "Run round").click().run()
 
     assert not app.exception
-    (picture,) = [text.value for text in app.markdown if text.value.startswith("<svg")]
-    assert "Swap: Ana → Farah → Eli → Ana" in picture
+    pictures = [text.value for text in app.markdown if text.value.startswith("<svg")]
+    assert len(pictures) == 4  # one for each loop
+    assert any("Swap: Ana → Farah → Eli → Ana" in picture for picture in pictures)
     assert "Green: handed over. Grey: waiting. Red: cancelled." in [text.value for text in app.caption]

@@ -5,14 +5,18 @@ Rounds run every week, so the demo can show every step without waiting:
 - Last week's round has run: Ben, Ana and Farah met, Ben's and Ana's books
   changed hands, but Farah didn't hand over hers, and Ben reported it. The
   moderator sees it under "Books not handed over". Eli's book had no match.
-- This week's round is ready to run. Eli, Farah and Ana each want the next
-  person's book, but no two of them want each other's, so no direct swap is
-  possible. When the moderator runs it, the loop finder finds the 3-way loop:
-  Eli gets Farah's book, Farah gets Ana's, and Ana gets Eli's. Ben also wants
-  Eli's book, but nobody wants Ben's, so his book goes back on his shelf.
-- Next week's round is open for books: Ana, Ben and Farah have entered one
-  each, so a student can enter theirs, the moderator can close entries, and
-  everyone can tick what they'd accept.
+- This week's round is ready to run, with 14 books. Eli, Farah and Ana each
+  want the next person's book, but no two of them want each other's, so no
+  direct swap is possible. When the moderator runs it, the loop finder finds
+  the 3-way loop: Eli gets Farah's book, Farah gets Ana's, and Ana gets Eli's.
+  Ben also wants Eli's book, but nobody wants Ben's, so his book goes back on
+  his shelf. Their classmates make three more loops: Gonçalo and Inês swap
+  directly, Beatriz, Diogo and Leonor make a 3-way loop, and Joana, Miguel,
+  Sofia and Tiago a 4-way one. Afonso wants Gonçalo's book, but nobody wants
+  Afonso's. So: 4 loops, 12 books change hands, 2 go back on the shelf.
+- Next week's round is open for books: seven are in already, so a student can
+  enter theirs, the moderator can close entries, and everyone can tick what
+  they'd accept.
 
 Each round is named after its handoff day ("Weekly swap · 26 Nov"). The dates
 follow the day the demo data is built, so they never look out of date,
@@ -41,6 +45,16 @@ ENTRIES = (
     ("entry-farah", "round-demo", "copy-06"),  # Farah: Principles of Economics
     ("entry-ana", "round-demo", "copy-07"),  # Ana: The Economics Book
     ("entry-ben", "round-demo", "copy-08"),  # Ben: World History: Patterns of Interaction
+    ("entry-goncalo", "round-demo", "copy-29"),  # Gonçalo: Python Crash Course
+    ("entry-ines", "round-demo", "copy-31"),  # Inês: Principles of Economics
+    ("entry-beatriz", "round-demo", "copy-27"),  # Beatriz: Psychology
+    ("entry-diogo", "round-demo", "copy-28"),  # Diogo: Business Essentials
+    ("entry-leonor", "round-demo", "copy-33"),  # Leonor: A Little History of the World
+    ("entry-joana", "round-demo", "copy-32"),  # Joana: Introduction to Algorithms
+    ("entry-miguel", "round-demo", "copy-35"),  # Miguel: University Physics
+    ("entry-sofia", "round-demo", "copy-38"),  # Sofia: A Mind for Numbers
+    ("entry-tiago", "round-demo", "copy-39"),  # Tiago: They Say / I Say
+    ("entry-afonso", "round-demo", "copy-26"),  # Afonso: Biology
     ("entry-last-ana", "round-last", "copy-last-ana"),
     ("entry-last-ben", "round-last", "copy-last-ben"),
     ("entry-last-farah", "round-last", "copy-last-farah"),
@@ -48,6 +62,10 @@ ENTRIES = (
     ("entry-next-ana", "round-next", "copy-19"),  # Ana: A Mind for Numbers
     ("entry-next-ben", "round-next", "copy-20"),  # Ben: Calculus: Early Transcendentals
     ("entry-next-farah", "round-next", "copy-12"),  # Farah: University Physics
+    ("entry-next-hugo", "round-next", "copy-30"),  # Hugo: The Economics Book
+    ("entry-next-marta", "round-next", "copy-34"),  # Marta: Automate the Boring Stuff with Python
+    ("entry-next-nuno", "round-next", "copy-36"),  # Nuno: Calculus: Early Transcendentals
+    ("entry-next-rita", "round-next", "copy-37"),  # Rita: World History: Patterns of Interaction
 )
 
 # (entry, wanted entry): "I'd accept that book in return for mine".
@@ -55,7 +73,17 @@ WANTS = (
     ("entry-eli", "entry-farah"),
     ("entry-farah", "entry-ana"),
     ("entry-ana", "entry-eli"),
-    ("entry-ben", "entry-eli"),
+    ("entry-ben", "entry-eli"),  # nobody wants Ben's book: no match
+    ("entry-goncalo", "entry-ines"),  # a direct swap
+    ("entry-ines", "entry-goncalo"),
+    ("entry-beatriz", "entry-diogo"),  # a 3-way loop
+    ("entry-diogo", "entry-leonor"),
+    ("entry-leonor", "entry-beatriz"),
+    ("entry-joana", "entry-miguel"),  # a 4-way loop
+    ("entry-miguel", "entry-sofia"),
+    ("entry-sofia", "entry-tiago"),
+    ("entry-tiago", "entry-joana"),
+    ("entry-afonso", "entry-goncalo"),  # nobody wants Afonso's book: no match
     ("entry-last-ana", "entry-last-ben"),
     ("entry-last-ben", "entry-last-farah"),
     ("entry-last-farah", "entry-last-ana"),

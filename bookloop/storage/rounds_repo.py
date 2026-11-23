@@ -385,8 +385,13 @@ def my_trades(round_id: str, user_id: str) -> list[MyTrade]:
 
 
 def loops_in_round(round_id: str) -> list[list[MyTrade]]:
-    """Every loop the round created, each as its trades in order around the circle."""
-    return _loops("l.round_id = :id", round_id)
+    """Every loop the round created, each as its trades in order around the circle.
+
+    The smallest loops come first, then by the first person's name, so the
+    page always lists a round's loops in the same order.
+    """
+    loops = _loops("l.round_id = :id", round_id)
+    return sorted(loops, key=lambda loop: (len(loop), loop[0].giver_name, loop[0].giver_id))
 
 
 def loop_trades(loop_id: str) -> list[MyTrade]:

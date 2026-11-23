@@ -42,6 +42,7 @@ Then open http://localhost:8501. On a laptop there's a **Dev login**: pick a dem
 | Ana, Ben, Eli, Farah | students in the three weekly swap rounds: last week's ran (Farah didn't hand over her book), this week's is ready to run, next week's is open for books |
 | Carla | Trusted student, with a handoff to Dina waiting, a book from Eli to review and an offer from Ben to answer |
 | Dina | student under review: low score and two books worse than described |
+| Afonso, Beatriz, Diogo, Gonçalo, Hugo, Inês, Joana, Leonor, Marta, Miguel, Nuno, Rita, Sofia, Tiago | 14 classmates, so rounds and Browse look like a real course: this week's round finds three more loops among them (2, 3 and 4 people), and four of their books are already in next week's |
 
 ## Run the tests
 
@@ -61,7 +62,7 @@ The online app runs on Streamlit Community Cloud, with its data in Supabase (a P
 - To set up a new Supabase project, run `db/migrations/001_init.sql` and then `db/supabase_only.sql` (row-level security) in its SQL editor. To make someone a moderator, change their `role` to `moderator` in the `profiles` table.
 - A free Supabase project pauses after a week without activity. Open its dashboard before a demo.
 
-**Demo data online.** Sign up once on the live app for each demo person, with these first names: Morgan, Ana, Ben, Carla, Dina, Eli and Farah. Then reset the demo data in one of two ways:
+**Demo data online.** Sign up once on the live app for each demo person, with these first names: Morgan, Ana, Ben, Carla, Dina, Eli and Farah. The 14 classmates need no account: they never log in, so the reset creates them. Then reset the demo data in one of two ways:
 
 - **In Supabase (no setup needed):** open the SQL Editor, paste all of `db/demo_reset.sql` and run it. It works on any day, because every demo date moves to the day it runs.
 - **From a laptop**, with `DATABASE_URL` set to the online database:

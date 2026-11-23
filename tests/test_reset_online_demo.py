@@ -102,6 +102,27 @@ def test_reset_keeps_other_accounts_but_replaces_their_data(demo, online):
     assert _one(online, "SELECT count(*) FROM books") == (15,)
 
 
+def test_reset_creates_the_classmates_who_never_log_in(demo, online):
+    for name in DEMO_PEOPLE:
+        _sign_up(online, name)
+
+    reset_online_demo.reset(demo, online)
+    reset_online_demo.reset(demo, online)  # replaced, not added twice
+
+    assert _one(online, "SELECT count(*) FROM profiles WHERE id LIKE 'extra-%'") == (14,)
+    assert _one(online, "SELECT display_name FROM profiles WHERE id = 'extra-goncalo'") == ("Gonçalo",)
+    # Their books and round entries came along.
+    assert _one(online, "SELECT count(*) FROM copies WHERE owner_id LIKE 'extra-%'") == (22,)
+    assert _one(online, "SELECT count(*) FROM round_entries WHERE round_id = 'round-demo'") == (14,)
+
+
+def test_only_the_people_who_log_in_need_an_account(demo):
+    with demo.connect() as connection:
+        people = reset_online_demo._demo_people(connection)
+
+    assert sorted(person["display_name"] for person in people) == sorted(DEMO_PEOPLE)
+
+
 def test_a_missing_account_stops_the_reset_and_changes_nothing(demo, online):
     for name in DEMO_PEOPLE:
         if name != "Eli":
@@ -149,6 +170,11 @@ def test_the_sql_version_links_every_demo_person_to_their_account(demo):
         looked_up = sql.count(f"demo_id = {demo_id}")
         listed = sql.count(f"({demo_id}, '{name}'")
         assert everywhere == looked_up + listed and listed == 1
+    # The classmates who never log in are added after the profiles of deleted accounts go.
+    orphans_go = sql.index("DELETE FROM profiles WHERE id NOT IN")
+    classmates_come = sql.index("INSERT INTO profiles")
+    assert orphans_go < classmates_come
+    assert "'extra-goncalo', 'Gonçalo', 'student', 'active'" in sql
 
 
 def test_the_sql_file_in_the_repo_matches_the_demo_data(demo):

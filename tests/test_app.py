@@ -181,33 +181,60 @@ def test_in_a_round_loop_my_swaps_asks_who_did_not_come(demo_data, database):
 # --- Offers and My Swaps: who, what, and a message after every action ---------
 
 
-def test_a_student_accepts_an_offer_and_sees_who_gives_what(demo_swaps):
-    carla = demo_user("user-carla", "Carla")  # the demo data has Ben's offer waiting for her
+def test_a_student_accepts_an_offer_with_a_meeting_and_sees_who_gives_what(demo_swaps):
+    from bookloop.services.notify import get_notifications
 
+    carla = demo_user("user-carla", "Carla")  # the demo data has Ben's offer waiting for her
     app = open_app(carla)
     app.switch_page("pages/3_Offers.py").run()
     assert not app.exception
-    offer_text = "**Ben** offers you “They Say / I Say” for your “Business Essentials” · waiting for an answer"
+    offer_text = (
+        "**Ben** (Swapper Score 4.00) offers you “They Say / I Say” for your “Business Essentials” "
+        "· waiting for an answer"
+    )
     assert offer_text in [text.value for text in app.markdown]
-    assert any(option.endswith("from Ben") for option in app.selectbox[1].options)
+    assert all("Swapper Score" in option for option in app.selectbox[1].options)  # the books you could ask for
+    assert app.text_input(key="place-offer-demo-ben").value == "Nova SBE library, ground floor"
 
     app = next(button for button in app.button if button.label == "Accept").click().run()
 
     assert not app.exception
-    assert [message.value for message in app.success] == [
+    (message,) = [message.value for message in app.success]
+    assert message.startswith(
         "Swap agreed with Ben: you give “Business Essentials” and get “They Say / I Say”. "
-        "Agree where and when to meet; the handoff is in My Swaps."
-    ]
+        "You meet at Nova SBE library, ground floor, "
+    )
+    assert message.endswith("14:00. The handoff is in My Swaps.")
     assert app.toast[0].value.startswith("Swap agreed with Ben")
+    assert get_notifications("user-ben")[0].text.startswith("Carla accepted your offer")
+
     app.switch_page("pages/5_My_Swaps.py").run()
     headings = [header.value for header in app.subheader]
     assert headings == [
-        "You give “Automate the Boring Stuff with Python” to Dina",  # the swap with a time comes first
+        "You give “Automate the Boring Stuff with Python” to Dina",  # today's meeting comes first
         "You get “A Mind for Numbers” from Dina",
         "You give “Business Essentials” to Ben",
         "You get “They Say / I Say” from Ben",
     ]
+    places = [text.value for text in app.markdown if text.value.startswith("Place: ")]
+    assert places[-1] == "Place: Nova SBE library, ground floor"
     assert "Show it to Ben when they give you the book." in [text.value for text in app.caption]
+
+
+def test_an_offer_is_not_accepted_with_a_meeting_in_the_past(demo_swaps):
+    from datetime import date, timedelta
+
+    from bookloop.storage import swaps_repo
+
+    app = open_app(demo_user("user-carla", "Carla"))
+    app.switch_page("pages/3_Offers.py").run()
+    app.date_input(key="day-offer-demo-ben").set_value(date.today() - timedelta(days=1))
+    app = next(button for button in app.button if button.label == "Accept").click().run()
+
+    assert not app.exception
+    assert [error.value for error in app.error] == ["Choose a meeting time in the future."]
+    pending = [row["offer"].status for row in swaps_repo.offers_for_user("user-carla") if row["offer"].id == "offer-demo-ben"]
+    assert pending == ["pending"]  # nothing changed
 
 
 def test_making_an_offer_says_who_it_went_to(demo_swaps):
