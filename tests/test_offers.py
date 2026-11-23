@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from bookloop.models import Copy, Offer
 from bookloop.rules.offers import can_accept, can_cancel, can_make_offer, is_expired
@@ -200,11 +200,13 @@ def test_accept_offer_reserves_both_copies(database, make_user, make_copy, make_
     bob = make_user(name="Bob")
     offered = make_copy(owner=alice)
     requested = make_copy(owner=bob)
+    # Accepting checks the real clock, so the offer must expire in the future.
+    in_72_hours = datetime.now(timezone.utc) + timedelta(hours=72)
     current_offer = make_offer(
         proposer=alice,
         offered_copy=offered,
         requested_copy=requested,
-        expires_at="2026-11-23T00:00:00Z",
+        expires_at=in_72_hours.isoformat().replace("+00:00", "Z"),
     )
 
     loop = accept_offer(current_offer, bob.id, offered, requested)

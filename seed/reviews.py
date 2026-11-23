@@ -11,7 +11,17 @@ These swaps happened in October, so they're past the 14-day review window
 and don't appear as "waiting for your review". Each one is a direct swap
 (a loop of 2), and only one side reviewed. The swapped books are "unlisted"
 copies owned by the person who received them, so they don't show up in Browse.
+
+One more swap is ready for the review step of the demo: yesterday Eli gave
+Carla a book listed as "like new", and Carla gave Eli one back. Eli has
+already reviewed Carla (still blind), Carla hasn't reviewed Eli yet. When
+Carla leaves 2 stars, "not as described", "poor" in the demo, the swap is
+flagged, both reviews become visible at once, and Eli's score drops from
+4.00 to 3.50. It's dated relative to when the data is loaded, so the 14-day
+review window is always open for the demo.
 """
+
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
@@ -109,3 +119,54 @@ def seed(connection: Connection) -> None:
             )
 
     connection.execute(text("UPDATE profiles SET status = 'under_review' WHERE id = 'user-dina'"))
+    _seed_demo_review_swap(connection)
+
+
+def _as_text(moment: datetime) -> str:
+    return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _seed_demo_review_swap(connection: Connection) -> None:
+    """Yesterday's swap between Eli and Carla, ready for Carla's review in the demo."""
+    done = datetime.now(timezone.utc) - timedelta(days=1)
+    eli_reviewed = done + timedelta(hours=2)
+    connection.execute(
+        text(
+            "INSERT INTO loops "
+            "(id, source, offer_id, round_id, status, meet_place, meet_time, no_show_user_id) "
+            "VALUES ('loop-demo-review', 'offer', NULL, NULL, 'completed', 'Nova SBE library', :at, NULL)"
+        ),
+        {"at": _as_text(done)},
+    )
+    # (copy, book, listed condition, giver, receiver): each receiver owns the book now.
+    for side, book, condition, giver, receiver in (
+        ("a", "book-11", 4, "user-eli", "user-carla"),  # Chemistry, listed like new
+        ("b", "book-15", 3, "user-carla", "user-eli"),  # Business Essentials, listed good
+    ):
+        connection.execute(
+            text(
+                'INSERT INTO copies (id, book_id, owner_id, "condition", highlighting, notes, '
+                "status, created_at) VALUES (:id, :book, :owner, :condition, 'none', NULL, "
+                "'unlisted', '2026-10-20T00:00:00Z')"
+            ),
+            {"id": f"copy-demo-review-{side}", "book": book, "owner": receiver, "condition": condition},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO trades (id, loop_id, copy_id, giver_id, receiver_id, handoff_code, "
+                "code_attempts, status, completed_at) VALUES (:id, 'loop-demo-review', :copy, "
+                ":giver, :receiver, '0000', 0, 'completed', :done)"
+            ),
+            {"id": f"trade-demo-review-{side}", "copy": f"copy-demo-review-{side}", "giver": giver,
+             "receiver": receiver, "done": _as_text(done)},
+        )
+    # Eli's review of Carla's book: blind for 7 days, or until Carla reviews too.
+    connection.execute(
+        text(
+            "INSERT INTO reviews (id, trade_id, reviewer_id, reviewee_id, stars, as_described, "
+            "actual_condition, comment, reply, visible_from, hidden_by_moderator, hidden_reason, "
+            "created_at) VALUES ('review-demo-eli', 'trade-demo-review-b', 'user-eli', 'user-carla', "
+            "5, 1, 3, 'Exactly as described.', NULL, :visible, 0, NULL, :at)"
+        ),
+        {"visible": _as_text(eli_reviewed + timedelta(days=7)), "at": _as_text(eli_reviewed)},
+    )

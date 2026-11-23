@@ -8,7 +8,13 @@ round, the loop finder finds the 3-way loop:
 
 Ben also wants Eli's book, but nobody wants Ben's, so Ben gets no match and
 his book goes back on his shelf. That shows both results in the demo.
+
+The round's dates follow the day the demo data is built (entries closed
+yesterday, wants close in two days, the meeting is in three days), so they
+never look out of date, whenever the demo happens.
 """
+
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
@@ -18,10 +24,7 @@ DEMO_ROUND = {
     "id": "round-demo",
     "name": "Winter textbook swap",
     "phase": "wants",
-    "entries_close_at": "2026-11-20T18:00:00Z",
-    "wants_close_at": "2026-12-15T18:00:00Z",
     "meet_place": "Nova SBE library, ground floor",
-    "meet_time": "2026-12-16T14:00:00Z",
     "created_by": "user-moderator",
 }
 
@@ -42,6 +45,20 @@ WANTS = (
 )
 
 
+def _round_dates(now: datetime) -> dict[str, str]:
+    """Entries closed yesterday at 18:00, wants close in two days, meeting in three days."""
+    today = now.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    def as_text(moment: datetime) -> str:
+        return moment.isoformat().replace("+00:00", "Z")
+
+    return {
+        "entries_close_at": as_text(today - timedelta(days=1) + timedelta(hours=18)),
+        "wants_close_at": as_text(today + timedelta(days=2, hours=18)),
+        "meet_time": as_text(today + timedelta(days=3, hours=14)),
+    }
+
+
 def seed(connection: Connection) -> None:
     """Insert the demo round, its entries and wants, and mark the books in_round."""
     connection.execute(
@@ -51,7 +68,7 @@ def seed(connection: Connection) -> None:
             "VALUES (:id, :name, :phase, :entries_close_at, :wants_close_at, "
             ":meet_place, :meet_time, :created_by)"
         ),
-        DEMO_ROUND,
+        {**DEMO_ROUND, **_round_dates(datetime.now(timezone.utc))},
     )
     connection.execute(
         text(

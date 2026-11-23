@@ -604,6 +604,18 @@ def test_the_demo_round_produces_a_three_way_loop(database):
     assert result.books_returned == 1
 
 
+def test_the_demo_loop_is_listed_in_order_around_the_circle(database):
+    load_demo_data(database)
+    rounds_repo.run_round("round-demo")
+
+    (loop,) = rounds_repo.loops_in_round("round-demo")
+
+    assert [trade.giver_name for trade in loop] == ["Ana", "Farah", "Eli"]
+    for trade, following in zip(loop, loop[1:] + loop[:1]):
+        assert trade.receiver_id == following.giver_id  # each receiver gives the next book
+    assert rounds_repo.loops_in_round("no-such-round") == []
+
+
 # === The Swap Round page ====================================================
 
 
@@ -646,6 +658,9 @@ def test_page_lets_a_moderator_run_the_demo_round_and_shows_results(database):
 
     assert not page.exception
     assert page.success[0].value.startswith("Found 1 loop: 3 books will change hands")
+    assert "**Loop 1:** Ana → Farah → Eli → Ana" in [text.value for text in page.markdown]
+    assert "Eli gives “Calculus: Early Transcendentals” to Ana" in [text.value for text in page.caption]
+    assert "This round created 1 loop." in [text.value for text in page.markdown]
     ana_page = open_page(seed_profile("user-ana", "Ana"))
     assert ana_page.success[0].value == "You're in a swap loop!"
     ben_page = open_page(seed_profile("user-ben", "Ben"))

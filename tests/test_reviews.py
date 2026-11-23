@@ -503,16 +503,34 @@ def test_the_demo_data_makes_carla_trusted_and_dina_under_review(database):
     assert {flag.receiver_name for flag in reviews_repo.flagged_swaps()} == {"Eli", "Farah"}
 
 
-def test_the_demo_swaps_are_too_old_to_review(database):
-    # Carla received a book back in each of her 5 October swaps, but the
-    # 14 days have passed, so none of them can be reviewed now.
+def test_only_yesterdays_demo_swap_can_still_be_reviewed(database):
+    # Carla received a book back in each of her 5 October swaps (too old to
+    # review now) and, yesterday, Eli's book for the demo.
     load_demo_reviews(database)
     carla = seed_profile("user-carla", "Carla")
 
     received = reviews_repo.trades_to_review(carla.id)
+    reviewable = [item for item in received if can_review(carla, item.trade, False).allowed]
 
-    assert len(received) == 5
-    assert not any(can_review(carla, item.trade, False).allowed for item in received)
+    assert len(received) == 6
+    assert [(item.title, item.giver_name, item.listed_condition) for item in reviewable] == [
+        ("Chemistry: The Central Science", "Eli", 4)
+    ]
+
+
+def test_the_demo_review_step_flags_the_swap_and_drops_elis_score(database):
+    load_demo_reviews(database)
+    carla = seed_profile("user-carla", "Carla")
+    (item,) = [i for i in reviews_repo.trades_to_review(carla.id) if can_review(carla, i.trade, False).allowed]
+    assert reviews_repo.swapper_score("user-eli").score == 4.0
+
+    saved = reviews_repo.save_review(item.trade, 2, False, 1, "Listed like new, but the cover is torn.")
+
+    assert saved.flagged is True
+    assert is_visible(saved.review.visible_from) is True  # Eli had already reviewed Carla
+    assert reviews_repo.swapper_score("user-eli") == (3.5, 0.0, "New")
+    assert reviews_repo.swapper_score("user-carla") == (4.67, 100.0, "Trusted")
+    assert len(reviews_repo.flagged_swaps()) == 3
 
 
 # === The Profile and Moderator pages ========================================
@@ -541,7 +559,11 @@ def test_profile_page_shows_score_badge_and_reviews(database):
     assert not page.exception
     metrics = {metric.label: metric.value for metric in page.metric}
     assert metrics == {"Swapper Score": "4.62", "Accuracy": "100%", "Badge": "Trusted"}
-    assert "No swaps waiting for your review." in [caption.value for caption in page.caption]
+    # Only yesterday's demo swap is waiting: the October ones are too old.
+    assert [button.label for button in page.button].count("Submit review") == 1
+    assert "**Chemistry: The Central Science** from **Eli**, listed as *like new*" in [
+        text.value for text in page.markdown
+    ]
 
 
 def test_profile_page_review_form_saves_a_review(swap):

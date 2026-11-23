@@ -232,6 +232,15 @@ def _show_online_login() -> None:
                 _sign_up(client, display_name.strip(), email.strip(), password)
 
 
+def logged_in_user() -> Profile | None:
+    """Return the logged-in profile, or None. Unlike login(), it never draws anything."""
+    user = st.session_state.get("current_user")
+    mode = "laptop" if _is_laptop_mode() else "online"
+    if user is not None and st.session_state.get("_auth_mode") == mode:
+        return user
+    return None
+
+
 def login() -> Profile | None:
     """Show the laptop demo login or online Supabase Auth forms."""
     mode = "laptop" if _is_laptop_mode() else "online"
@@ -247,6 +256,12 @@ def login() -> Profile | None:
     else:
         _show_online_login()
     return st.session_state.get("current_user")
+
+
+def logout(session_state: Any = None) -> None:
+    """Forget the logged-in user, and everything else this browser tab remembered for them."""
+    state = st.session_state if session_state is None else session_state
+    state.clear()
 
 
 def current_user() -> Profile:

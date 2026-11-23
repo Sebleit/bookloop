@@ -10,6 +10,9 @@ def _show_sidebar(user: Profile) -> None:
     st.sidebar.subheader("BookLoop")
     st.sidebar.write(f"Logged in as **{user.display_name}**")
     st.sidebar.caption(user.role.title())
+    if st.sidebar.button("Log out"):
+        auth.logout()
+        st.rerun()
     st.sidebar.subheader("Notifications")
 
     try:
@@ -27,32 +30,61 @@ def _show_sidebar(user: Profile) -> None:
         st.sidebar.write(f"{marker} {notification.text}")
 
 
-def main() -> None:
-    user = auth.login()
-    if user is None:
-        st.stop()
+# Each menu entry runs one file in pages/. Each page checks the login itself.
+PAGES = (
+    ("pages/1_Browse.py", "Browse"),
+    ("pages/2_My_Shelf.py", "My Shelf"),
+    ("pages/3_Offers.py", "Offers"),
+    ("pages/4_Swap_Round.py", "Swap Round"),
+    ("pages/5_My_Swaps.py", "My Swaps"),
+    ("pages/6_Profile.py", "Profile"),
+)
+MODERATOR_PAGES = (
+    ("pages/7_Moderator.py", "Moderator"),
+    ("pages/8_Stats.py", "Stats"),
+)
 
-    user = auth.current_user()
-    _show_sidebar(user)
 
-    # Each menu entry runs one file in pages/. Each page checks the login itself.
-    pages = [
-        st.Page("pages/1_Browse.py", title="Browse", default=True),
-        st.Page("pages/2_My_Shelf.py", title="My Shelf"),
-        st.Page("pages/3_Offers.py", title="Offers"),
-        st.Page("pages/4_Swap_Round.py", title="Swap Round"),
-        st.Page("pages/5_My_Swaps.py", title="My Swaps"),
-        st.Page("pages/6_Profile.py", title="Profile"),
+def _menu(user: Profile) -> list:
+    """The pages for this user. Browse is the first page after logging in."""
+    pages = [st.Page(path, title=title, default=(index == 0)) for index, (path, title) in enumerate(PAGES)]
+    # Students don't see the moderator pages in the menu. If one types the address anyway,
+    # the page itself refuses with a clear message (auth.require_role), instead of
+    # Streamlit's "page not found" box.
+    moderator_menu = "visible" if user.role == "moderator" else "hidden"
+    pages += [st.Page(path, title=title, visibility=moderator_menu) for path, title in MODERATOR_PAGES]
+    return pages
+
+
+def _login_screen() -> None:
+    """The page at every address while nobody is logged in: the login form."""
+    auth.login()
+
+
+def _login_menu() -> list:
+    """While nobody is logged in, every page address shows the login form.
+
+    So a shared link, or reloading the browser on any page (which logs you out), shows the
+    login form instead of Streamlit's "page not found", and after logging in you are on
+    the page you asked for: Streamlit matches pages by their address.
+    """
+    return [
+        st.Page(_login_screen, title="Log in", url_path=st.Page(path).url_path, default=(index == 0))
+        for index, (path, _title) in enumerate(PAGES + MODERATOR_PAGES)
     ]
-    if user.role == "moderator":
-        pages.extend(
-            [
-                st.Page("pages/7_Moderator.py", title="Moderator"),
-                st.Page("pages/8_Stats.py", title="Stats"),
-            ]
-        )
 
-    navigation = st.navigation(pages)
+
+def main() -> None:
+    user = auth.logged_in_user()
+    if user is None:
+        # The login form is the only thing on screen: no menu before login. The form is
+        # drawn inside the login page, not before the menu: Streamlit files each widget
+        # under the page that draws it, and this way the first click on Continue counts.
+        st.navigation(_login_menu(), position="hidden").run()
+        return
+
+    _show_sidebar(user)
+    navigation = st.navigation(_menu(user))
     navigation.run()
 
 
