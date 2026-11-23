@@ -116,6 +116,17 @@ def _profile_for_auth_user(auth_user: Any, client: Any) -> Profile | None:
     return _profile_from_row(row) if row else None
 
 
+def _remember_email(profile: Profile, auth_user: Any) -> None:
+    """Keep the profile's email up to date, for direct swaps and moderators.
+    If it can't be saved, logging in still works."""
+    from contextlib import suppress
+
+    from bookloop.storage.reviews_repo import save_email
+
+    with suppress(Exception):
+        save_email(profile.id, getattr(auth_user, "email", None))
+
+
 def _sign_up(client: Any, display_name: str, email: str, password: str) -> None:
     try:
         response = client.auth.sign_up(
@@ -150,6 +161,7 @@ def _sign_up(client: Any, display_name: str, email: str, password: str) -> None:
     if profile is None:
         st.error("The account was created, but its profile is missing. Ask the project owner for help.")
         return
+    _remember_email(profile, auth_user)
     _save_user(profile, "online")
     st.rerun()
 
@@ -177,6 +189,7 @@ def _sign_in(client: Any, email: str, password: str) -> None:
     if profile is None:
         st.error("Your login was accepted, but your BookLoop profile is missing. Ask the project owner for help.")
         return
+    _remember_email(profile, response.user)
     _save_user(profile, "online")
     st.rerun()
 
