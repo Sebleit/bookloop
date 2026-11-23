@@ -21,6 +21,7 @@ from bookloop.rules.decision import Decision
 CONDITIONS = {4: "like new", 3: "good", 2: "fair", 1: "poor"}
 HIGHLIGHTING = ("none", "light", "heavy")
 MAX_NOTES_LENGTH = 500
+MAX_COURSE_NAME_LENGTH = 80
 BUSY_STATUSES = {
     "reserved": "This book is reserved for a swap.",
     "in_round": "This book is in a swap round.",
@@ -114,3 +115,26 @@ def can_list(user: Profile, copy: Copy) -> Decision:
     if copy.status != "unlisted":
         return Decision.no("This book is already on your shelf.")
     return Decision.yes()
+
+
+# --- Courses ---------------------------------------------------------------
+
+
+def clean_course_name(name: str | None) -> str:
+    """A course name as students type it, without extra spaces."""
+    return " ".join((name or "").split())
+
+
+def check_course_name(name: str | None) -> Decision:
+    """A new course needs a real name, so the shared list stays readable."""
+    cleaned = clean_course_name(name)
+    if len(cleaned) < 2:
+        return Decision.no("Type the course's name, for example “Corporate Finance”.")
+    if len(cleaned) > MAX_COURSE_NAME_LENGTH:
+        return Decision.no(f"Course names can be at most {MAX_COURSE_NAME_LENGTH} characters.")
+    return Decision.yes()
+
+
+def course_label(code: str, name: str) -> str:
+    """How a course is shown: "Computer Programming (1318)", or just its name."""
+    return name if code == name else f"{name} ({code})"
