@@ -23,8 +23,9 @@ CLASSMATES = (
 )
 NO_LOGIN_PREFIX = "extra-"
 
-# Each classmate's books: (copy, owner, book, condition). The first one of each
-# goes into a swap round (seed/rounds.py); the others stay on their shelves.
+# Each classmate's books: (copy, owner, book, condition). Like real students,
+# most have two or three, and some put two into the same swap round
+# (seed/rounds.py); the rest stay on their shelves for Browse.
 CLASSMATE_COPIES = (
     ("copy-26", "Afonso", "book-10", 3),  # Biology
     ("copy-27", "Beatriz", "book-13", 4),  # Psychology
@@ -48,13 +49,34 @@ CLASSMATE_COPIES = (
     ("copy-45", "Nuno", "book-13", 3),  # Psychology
     ("copy-46", "Inês", "book-05", 2),  # Calculus: Early Transcendentals
     ("copy-47", "Rita", "book-10", 4),  # Biology
+    ("copy-48", "Beatriz", "book-05", 3),  # Calculus: Early Transcendentals
+    ("copy-49", "Diogo", "book-07", 2),  # The Economics Book
+    ("copy-50", "Gonçalo", "book-11", 4),  # Chemistry: The Central Science
+    ("copy-51", "Afonso", "book-14", 3),  # They Say / I Say
+    ("copy-52", "Leonor", "book-12", 3),  # University Physics
+    ("copy-53", "Tiago", "book-01", 2),  # Introduction to Algorithms
+    ("copy-54", "Afonso", "book-04", 4),  # A Mind for Numbers
+    ("copy-55", "Beatriz", "book-02", 3),  # Python Crash Course
+    ("copy-56", "Diogo", "book-09", 1),  # A Little History of the World
+    ("copy-57", "Gonçalo", "book-15", 3),  # Business Essentials
+    ("copy-58", "Leonor", "book-06", 4),  # Principles of Economics
+    ("copy-59", "Tiago", "book-13", 2),  # Psychology
 )
+
+
+def _plain(name: str) -> str:
+    """'Gonçalo' -> 'goncalo'."""
+    return name.lower().replace("ç", "c").replace("ê", "e").replace("é", "e").replace("í", "i")
 
 
 def classmate_id(name: str) -> str:
     """'Gonçalo' -> 'extra-goncalo'."""
-    plain = name.lower().replace("ç", "c").replace("ê", "e").replace("é", "e").replace("í", "i")
-    return f"{NO_LOGIN_PREFIX}{plain}"
+    return f"{NO_LOGIN_PREFIX}{_plain(name)}"
+
+
+def demo_email(name: str) -> str:
+    """'Gonçalo' -> 'goncalo@example.com'. Online, people who log in keep their account's email."""
+    return f"{_plain(name)}@example.com"
 
 # Real Nova SBE bachelor's courses, with their codes from the course catalogue
 # (guia.unl.pt, 2023). Students can add more on My Shelf.
@@ -143,6 +165,7 @@ def seed(connection: Connection) -> None:
             "role": "moderator",
             "status": "active",
             "created_at": CREATED_AT,
+            "email": demo_email("Morgan"),
         }
     ]
     profiles.extend(
@@ -152,6 +175,7 @@ def seed(connection: Connection) -> None:
             "role": "student",
             "status": "active",
             "created_at": CREATED_AT,
+            "email": demo_email(name),
         }
         for name in STUDENTS
     )
@@ -162,13 +186,14 @@ def seed(connection: Connection) -> None:
             "role": "student",
             "status": "active",
             "created_at": CREATED_AT,
+            "email": demo_email(name),
         }
         for name in CLASSMATES
     )
     connection.execute(
         text(
-            "INSERT INTO profiles (id, display_name, role, status, created_at) "
-            "VALUES (:id, :display_name, :role, :status, :created_at)"
+            "INSERT INTO profiles (id, display_name, role, status, created_at, email) "
+            "VALUES (:id, :display_name, :role, :status, :created_at, :email)"
         ),
         profiles,
     )

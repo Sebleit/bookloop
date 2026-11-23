@@ -4,14 +4,11 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from bookloop.rules.handoffs import new_code  # random, like real swaps
+
 
 CREATED_AT = "2026-11-14T00:00:00Z"
 PENDING_EXPIRES_AT = "2026-11-23T00:00:00Z"
-
-
-def _next_full_hour() -> str:
-    in_an_hour = datetime.now(timezone.utc) + timedelta(hours=1)
-    return in_an_hour.replace(minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _ben_offer_times() -> tuple[str, str]:
@@ -78,9 +75,9 @@ def seed(connection: Connection) -> None:
             "id": "loop-demo-pending",
             "offer_id": "offer-demo-pending",
             "status": "scheduled",
-            "meet_place": "Student centre",
-            # The next full hour after the demo data is built, so the meeting is "now".
-            "meet_time": _next_full_hour(),
+            # A direct swap: Carla and Dina agree where and when by email.
+            "meet_place": None,
+            "meet_time": None,
         },
     ]
     connection.execute(
@@ -99,7 +96,7 @@ def seed(connection: Connection) -> None:
             "copy_id": "copy-01",
             "giver_id": "user-ana",
             "receiver_id": "user-ben",
-            "handoff_code": "1111",
+            "handoff_code": new_code(),
             "status": "completed",
             "completed_at": "2026-11-15T14:10:00Z",
         },
@@ -109,7 +106,7 @@ def seed(connection: Connection) -> None:
             "copy_id": "copy-02",
             "giver_id": "user-ben",
             "receiver_id": "user-ana",
-            "handoff_code": "2222",
+            "handoff_code": new_code(),
             "status": "completed",
             "completed_at": "2026-11-15T14:10:00Z",
         },
@@ -119,7 +116,7 @@ def seed(connection: Connection) -> None:
             "copy_id": "copy-03",
             "giver_id": "user-carla",
             "receiver_id": "user-dina",
-            "handoff_code": "3333",
+            "handoff_code": new_code(),
             "status": "pending",
             "completed_at": None,
         },
@@ -129,7 +126,7 @@ def seed(connection: Connection) -> None:
             "copy_id": "copy-04",
             "giver_id": "user-dina",
             "receiver_id": "user-carla",
-            "handoff_code": "4444",
+            "handoff_code": new_code(),
             "status": "pending",
             "completed_at": None,
         },
