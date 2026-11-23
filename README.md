@@ -2,7 +2,7 @@
 
 Nova SBE students swap textbooks with each other: no money, just one book for another.
 
-**Live app:** https://bookloop-2y6l6lsym6mznfylnxegux.streamlit.app/
+**Live app:** https://bookloop-nova.streamlit.app/
 
 ## Team
 
