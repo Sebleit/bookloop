@@ -11,6 +11,13 @@ It needs DATABASE_URL, the online database's address, in the terminal or in
 .streamlit/secrets.toml, like the app. It never touches the laptop database
 (for that, run seed.py).
 
+Without DATABASE_URL, use db/demo_reset.sql instead: paste it into Supabase's
+SQL Editor and run it. It does the same reset, moves every demo date to the
+day it runs, and removes the profiles of accounts deleted in Supabase. After
+changing the demo data, write it again with:
+
+    uv run python reset_online_demo.py --sql db/demo_reset.sql
+
 A reset happens in one transaction, so if anything fails, nothing changes:
 1. it builds the same demo data as seed.py, in a temporary database;
 2. it deletes every book, swap, round, review, notification and log entry
@@ -20,8 +27,10 @@ A reset happens in one transaction, so if anything fails, nothing changes:
    moderator, Dina is under review).
 """
 
+import re
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import text
@@ -134,7 +143,114 @@ def reset(demo: Engine, online: Engine) -> dict[str, int]:
     return {table: len(rows[table]) for table in TABLES}
 
 
+# --- The same reset as SQL, for Supabase's SQL Editor ----------------------
+
+TIMESTAMP = re.compile(r"^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(\.\d+)?Z$")
+
+
+def _sql_literal(value) -> str:
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def reset_sql(demo: Engine, today: datetime) -> str:
+    """The reset as one PL/pgSQL block: all of it happens, or none of it.
+
+    Each demo person's id becomes a lookup of their account by first name,
+    and each date moves by the number of days between `today` and the day
+    the SQL runs, so the file works on any day.
+    """
+    with demo.connect() as source:
+        people = _demo_people(source)
+        rows = {table: [dict(row) for row in source.execute(text(f"SELECT * FROM {table}")).mappings()] for table in TABLES}
+    demo_ids = {person["id"] for person in people}
+
+    def value(item) -> str:
+        if isinstance(item, str) and item in demo_ids:
+            return f"(SELECT account_id FROM demo_accounts WHERE demo_id = {_sql_literal(item)})"
+        if isinstance(item, str) and (match := TIMESTAMP.match(item)):
+            return (
+                f"to_char(timestamp '{match[1]} {match[2]}' + shift * interval '1 day', "
+                "'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')"
+            )
+        return _sql_literal(item)
+
+    names = ", ".join(person["display_name"] for person in people)
+    lines = [
+        "-- BookLoop: reset the online demo data. Paste all of it into Supabase -> SQL Editor -> Run.",
+        "-- It's one block: if anything fails, nothing changes. It works on any day: every demo",
+        "-- date moves to the day it runs. It also removes the profiles of accounts deleted in",
+        "-- Authentication -> Users. Made by: uv run python reset_online_demo.py --sql db/demo_reset.sql",
+        f"-- It needs one account for each of these first names: {names}.",
+        "DO $reset$",
+        "DECLARE",
+        "    problem text;",
+        f"    shift integer := (now() AT TIME ZONE 'UTC')::date - date '{today:%Y-%m-%d}';",
+        "BEGIN",
+        "    CREATE TEMP TABLE demo_accounts (demo_id text PRIMARY KEY, name text, role text, status text, "
+        "account_id text) ON COMMIT DROP;",
+        "    INSERT INTO demo_accounts (demo_id, name, role, status) VALUES",
+        ",\n".join(
+            f"        ({_sql_literal(p['id'])}, {_sql_literal(p['display_name'])}, "
+            f"{_sql_literal(p['role'])}, {_sql_literal(p['status'])})"
+            for p in people
+        ) + ";",
+        "",
+        "    SELECT string_agg(d.name, ', ' ORDER BY d.name) INTO problem FROM demo_accounts d",
+        "    WHERE (SELECT count(*) FROM profiles p WHERE lower(trim(p.display_name)) = lower(d.name)) <> 1;",
+        "    IF problem IS NOT NULL THEN",
+        "        RAISE EXCEPTION 'Each of these needs exactly one account with that name: %. "
+        "Nothing was changed.', problem;",
+        "    END IF;",
+        "    UPDATE demo_accounts d SET account_id = p.id FROM profiles p "
+        "WHERE lower(trim(p.display_name)) = lower(d.name);",
+        "",
+    ]
+    lines += [f"    DELETE FROM {table};" for table in reversed(TABLES)]
+    lines += [
+        "",
+        "    -- Accounts deleted in Authentication -> Users: remove their profiles too.",
+        "    DELETE FROM profiles WHERE id NOT IN (SELECT id::text FROM auth.users);",
+        "",
+        "    UPDATE profiles p SET display_name = d.name, role = d.role, status = d.status",
+        "    FROM demo_accounts d WHERE p.id = d.account_id;",
+        "",
+    ]
+    for table in TABLES:
+        if rows[table]:
+            columns = list(rows[table][0])
+            quoted = ", ".join(f'"{column}"' for column in columns)
+            values = ",\n".join(
+                "        (" + ", ".join(value(row[column]) for column in columns) + ")" for row in rows[table]
+            )
+            lines.append(f"    INSERT INTO {table} ({quoted}) VALUES\n{values};")
+    lines += [
+        "END",
+        "$reset$;",
+        "",
+        "-- Who's who now: Morgan should be the moderator and Dina under review.",
+        "SELECT display_name, role, status FROM profiles ORDER BY role DESC, display_name;",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def main(arguments: list[str]) -> int:
+    if "--sql" in arguments:
+        target = Path(arguments[arguments.index("--sql") + 1])
+        with tempfile.TemporaryDirectory() as folder:
+            demo = _create_engine(f"sqlite:///{Path(folder) / 'demo.db'}")
+            build_demo_data(demo)
+            target.write_text(reset_sql(demo, datetime.now(timezone.utc)), encoding="utf-8")
+            demo.dispose()
+        print(f"Wrote {target}: paste it into Supabase's SQL Editor and run it.")
+        return 0
+
     url = _database_url_setting()
     if not url or url.startswith("sqlite"):
         print("DATABASE_URL isn't set to the online database, so nothing was changed.")

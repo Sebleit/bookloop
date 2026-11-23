@@ -20,6 +20,7 @@ from bookloop.rules.reviews import (
     can_resolve_flag,
     can_review,
     check_review_details,
+    arrived_as_described,
     is_misdescribed,
     is_visible,
     needs_comment,
@@ -171,15 +172,28 @@ def test_one_level_worse_or_better_is_not_misdescribed():
     assert is_misdescribed(listed_condition=2, actual_condition=4) is False  # better than listed
 
 
+def test_as_described_means_the_listed_condition_or_better():
+    assert arrived_as_described(listed_condition=3, actual_condition=3) is True
+    assert arrived_as_described(listed_condition=3, actual_condition=4) is True
+    assert arrived_as_described(listed_condition=3, actual_condition=2) is False
+
+
 # --- Blind reviews ---------------------------------------------------------
 
 
-def test_a_review_is_hidden_for_7_days_if_others_have_not_reviewed():
-    when = review_visible_from(COMPLETED, everyone_reviewed=False, now=COMPLETED)
+def test_a_review_stays_hidden_until_nobody_can_review_any_more(make_user):
+    # Ben reviewed Ana the day after the swap. Ana hasn't reviewed her book yet.
+    ana, ben = make_user(name="Ana"), make_user(name="Ben")
+    anas_book = a_trade(giver_id=ben.id, receiver_id=ana.id)
+    when = review_visible_from(COMPLETED, everyone_reviewed=False, now=NEXT_DAY)
 
-    assert when == "2026-11-17T14:00:00Z"
-    assert is_visible(when, now="2026-11-17T13:59:59Z") is False
-    assert is_visible(when, now="2026-11-17T14:00:00Z") is True
+    last_moment = "2026-11-24T14:00:00Z"  # 14 days after the swap
+    assert is_visible(when, now=last_moment) is False
+    assert can_review(ana, anas_book, already_reviewed=False, now=last_moment).allowed is True
+
+    one_second_later = "2026-11-24T14:00:01Z"
+    assert is_visible(when, now=one_second_later) is True
+    assert can_review(ana, anas_book, already_reviewed=False, now=one_second_later).allowed is False
 
 
 def test_a_review_is_visible_straight_away_once_everyone_has_reviewed():
@@ -325,7 +339,7 @@ def test_books_waiting_for_review_are_the_ones_the_user_received(swap):
 def test_a_reviewed_trade_is_no_longer_waiting(swap):
     ana, _, ben_to_ana, _ = swap
 
-    reviews_repo.save_review(ben_to_ana, 5, True, 4, None)
+    reviews_repo.save_review(ben_to_ana, 5, 4, None)
 
     assert reviews_repo.trades_to_review(ana.id) == []
     assert reviews_repo.has_review(ben_to_ana.id) is True
@@ -334,7 +348,7 @@ def test_a_reviewed_trade_is_no_longer_waiting(swap):
 def test_a_new_review_stays_blind_until_the_other_side_reviews(swap):
     ana, ben, ben_to_ana, _ = swap
 
-    saved = reviews_repo.save_review(ben_to_ana, 1, False, 3, "Coffee stains everywhere.")
+    saved = reviews_repo.save_review(ben_to_ana, 1, 3, "Coffee stains everywhere.")
 
     assert is_visible(saved.review.visible_from) is False
     assert reviews_repo.reviews_about(ben.id) == []
@@ -343,9 +357,9 @@ def test_a_new_review_stays_blind_until_the_other_side_reviews(swap):
 
 def test_when_everyone_has_reviewed_both_reviews_become_visible(swap):
     ana, ben, ben_to_ana, ana_to_ben = swap
-    reviews_repo.save_review(ben_to_ana, 4, True, 4, None)
+    reviews_repo.save_review(ben_to_ana, 4, 4, None)
 
-    saved = reviews_repo.save_review(ana_to_ben, 5, True, 3, None)
+    saved = reviews_repo.save_review(ana_to_ben, 5, 3, None)
 
     assert is_visible(saved.review.visible_from) is True
     assert [view.reviewer_name for view in reviews_repo.reviews_about(ben.id)] == ["Ana"]
@@ -357,7 +371,7 @@ def test_a_misdescribed_book_flags_the_swap_and_tells_moderators(swap, make_user
     ana, ben, ben_to_ana, _ = swap
     moderator = make_user(name="Mia", role="moderator")
 
-    saved = reviews_repo.save_review(ben_to_ana, 2, False, 2, "Highlighted throughout.")
+    saved = reviews_repo.save_review(ben_to_ana, 2, 2, "Highlighted throughout.")
 
     assert saved.flagged is True  # listed like new (4), arrived fair (2)
     (flag,) = reviews_repo.flagged_swaps()
@@ -365,20 +379,30 @@ def test_a_misdescribed_book_flags_the_swap_and_tells_moderators(swap, make_user
     assert "flagged" in get_notifications(moderator.id)[0].text
 
 
-def test_one_level_worse_is_not_flagged(swap):
+def test_one_level_worse_is_not_flagged_but_is_not_as_described(swap):
     _, _, ben_to_ana, _ = swap
 
-    saved = reviews_repo.save_review(ben_to_ana, 3, False, 3, None)
+    saved = reviews_repo.save_review(ben_to_ana, 3, 3, None)  # listed like new, arrived good
 
     assert saved.flagged is False
     assert reviews_repo.flagged_swaps() == []
+    assert saved.review.as_described is False
+
+
+def test_a_book_in_the_listed_condition_is_as_described(swap):
+    _, _, ben_to_ana, _ = swap
+
+    saved = reviews_repo.save_review(ben_to_ana, 2, 4, "Late and rude, but the book was perfect.")
+
+    assert saved.review.as_described is True  # the stars judge the meeting, not the book
+    assert saved.flagged is False
 
 
 def test_two_misdescribed_books_put_the_giver_under_review(swap, make_review):
     ana, ben, ben_to_ana, _ = swap
     make_review(reviewee=ben, stars=2, as_described=False, comment="Torn.")
 
-    saved = reviews_repo.save_review(ben_to_ana, 2, False, 2, "Highlighted throughout.")
+    saved = reviews_repo.save_review(ben_to_ana, 2, 2, "Highlighted throughout.")
 
     assert saved.now_under_review is True
     assert reviews_repo.get_profile(ben.id).status == "under_review"
@@ -389,7 +413,7 @@ def test_two_misdescribed_books_put_the_giver_under_review(swap, make_review):
 def test_a_good_review_does_not_change_the_givers_status(swap):
     _, ben, ben_to_ana, _ = swap
 
-    saved = reviews_repo.save_review(ben_to_ana, 5, True, 4, None)
+    saved = reviews_repo.save_review(ben_to_ana, 5, 4, None)
 
     assert saved.now_under_review is False
     assert reviews_repo.get_profile(ben.id).status == "active"
@@ -401,17 +425,17 @@ def test_a_suspended_user_stays_suspended_after_a_bad_review(swap, make_review, 
     make_review(reviewee=ben, stars=1, as_described=False, comment="Torn.")
     reviews_repo.set_user_status(moderator.id, ben.id, "suspended")
 
-    reviews_repo.save_review(ben_to_ana, 1, False, 1, "Pages missing.")
+    reviews_repo.save_review(ben_to_ana, 1, 1, "Pages missing.")
 
     assert reviews_repo.get_profile(ben.id).status == "suspended"
 
 
 def test_the_database_refuses_a_second_review_of_the_same_trade(swap):
     _, _, ben_to_ana, _ = swap
-    reviews_repo.save_review(ben_to_ana, 5, True, 4, None)
+    reviews_repo.save_review(ben_to_ana, 5, 4, None)
 
     with pytest.raises(Exception):
-        reviews_repo.save_review(ben_to_ana, 1, False, 1, "Changed my mind.")
+        reviews_repo.save_review(ben_to_ana, 1, 1, "Changed my mind.")
 
     assert count_rows("reviews") == 1
 
@@ -455,7 +479,7 @@ def test_hiding_a_review_twice_fails_and_logs_nothing_more(make_user, make_revie
 def test_resolving_a_flag_removes_it_from_the_list_and_logs_it(swap, make_user):
     _, _, ben_to_ana, _ = swap
     moderator = make_user(name="Mia", role="moderator")
-    reviews_repo.save_review(ben_to_ana, 2, False, 1, "Pages missing.")
+    reviews_repo.save_review(ben_to_ana, 2, 1, "Pages missing.")
 
     reviews_repo.resolve_flag(moderator.id, ben_to_ana.id)
 
@@ -524,7 +548,7 @@ def test_the_demo_review_step_flags_the_swap_and_drops_elis_score(database):
     (item,) = [i for i in reviews_repo.trades_to_review(carla.id) if can_review(carla, i.trade, False).allowed]
     assert reviews_repo.swapper_score("user-eli").score == 4.0
 
-    saved = reviews_repo.save_review(item.trade, 2, False, 1, "Listed like new, but the cover is torn.")
+    saved = reviews_repo.save_review(item.trade, 2, 1, "Listed like new, but the cover is torn.")
 
     assert saved.flagged is True
     assert is_visible(saved.review.visible_from) is True  # Eli had already reviewed Carla
@@ -570,9 +594,11 @@ def test_profile_page_review_form_saves_a_review(swap):
     ana, ben, ben_to_ana, _ = swap
 
     page = open_page("6_Profile.py", ana)
+    assert not page.radio  # no separate "as described?" question
+    assert page.select_slider[0].label == "1. How did the swap with Ben go?"
+    assert page.selectbox[1].label == "2. What condition did the book arrive in?"
     page.select_slider[0].set_value(2)
-    page.radio[0].set_value("No")
-    page.selectbox[1].set_value(1)
+    page.selectbox[1].set_value(1)  # listed like new, arrived poor
     page.text_area[0].input("Torn cover and missing pages.")
     page = page.button[0].click().run()
 

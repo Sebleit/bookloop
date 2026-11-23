@@ -1,16 +1,20 @@
 """Rules for reviews.
 
-The person who receives a book rates whether it matched its listing:
-1-5 stars, "was the condition as described?", the actual condition, and a
-comment (required for 1-2 stars). Those reviews become the giver's score.
+The person who receives a book reviews the giver in two separate parts:
+- stars (1-5) for the swap itself: the person and the meeting (on time,
+  polite, easy to arrange). They become the giver's Swapper Score;
+- the condition the book arrived in. Compared with the listing, it decides
+  whether the book was "as described" (as listed or better), which feeds
+  accuracy, and whether the swap is flagged to a moderator.
+A comment is required for 1-2 stars.
 
 The rules:
 - Only the receiver of a completed trade can review it, once, within 14 days.
 - Cancelled, no-show and unfinished trades can't be reviewed.
 - Reviews can't be edited after they're submitted.
 - Blind reviews: a review stays hidden until everyone in that swap has
-  reviewed, or 7 days pass, so nobody can take revenge after reading a bad
-  review about themselves.
+  reviewed, or the 14 days for reviewing are over. Nobody can ever review
+  after reading a review about themselves, so revenge reviews are impossible.
 - The person reviewed can reply once.
 - Moderators can hide abusive reviews, with the reason saved.
 
@@ -25,7 +29,6 @@ from bookloop.rules.permissions import is_moderator
 
 
 REVIEW_WINDOW_DAYS = 14
-BLIND_DAYS = 7
 MAX_TEXT_LENGTH = 500
 CONDITIONS = {1: "poor", 2: "fair", 3: "good", 4: "like new"}
 
@@ -89,6 +92,15 @@ def check_review_details(stars: int, actual_condition: int, comment: str | None)
     return Decision.yes()
 
 
+def arrived_as_described(listed_condition: int, actual_condition: int) -> bool:
+    """True if the book arrived in the condition listed, or better.
+
+    The reviewer only says what condition the book arrived in; "as described"
+    is worked out from that, so the two can never contradict each other.
+    """
+    return actual_condition >= listed_condition
+
+
 def is_misdescribed(listed_condition: int, actual_condition: int) -> bool:
     """True if the book arrived 2 or more levels worse than its listing said.
 
@@ -102,18 +114,20 @@ def is_misdescribed(listed_condition: int, actual_condition: int) -> bool:
 
 
 def review_visible_from(
-    created_at: str | datetime,
+    swap_completed_at: str | datetime,
     everyone_reviewed: bool,
     now: str | datetime | None = None,
 ) -> str:
     """When a new review becomes visible.
 
-    Straight away if everyone in the swap has now reviewed, otherwise
-    7 days after it was written.
+    Straight away if everyone in the swap has now reviewed. Otherwise when
+    the 14 days for reviewing the swap are over: by then nobody can review
+    any more, so nobody can answer a review they've read.
     """
     if everyone_reviewed:
         return _as_text(_now(now))
-    return _as_text(_as_utc(created_at) + timedelta(days=BLIND_DAYS))
+    # One second after the last moment a review can be written (see can_review).
+    return _as_text(_as_utc(swap_completed_at) + timedelta(days=REVIEW_WINDOW_DAYS, seconds=1))
 
 
 def is_visible(visible_from: str | None, now: str | datetime | None = None) -> bool:

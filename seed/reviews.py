@@ -26,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from bookloop.rules.reviews import review_visible_from
 from bookloop.storage.reviews_repo import FLAGGED
 
 
@@ -160,7 +161,7 @@ def _seed_demo_review_swap(connection: Connection) -> None:
             {"id": f"trade-demo-review-{side}", "copy": f"copy-demo-review-{side}", "giver": giver,
              "receiver": receiver, "done": _as_text(done)},
         )
-    # Eli's review of Carla's book: blind for 7 days, or until Carla reviews too.
+    # Eli's review of Carla's book: hidden until Carla reviews too, or the 14 days for reviewing end.
     connection.execute(
         text(
             "INSERT INTO reviews (id, trade_id, reviewer_id, reviewee_id, stars, as_described, "
@@ -168,5 +169,5 @@ def _seed_demo_review_swap(connection: Connection) -> None:
             "created_at) VALUES ('review-demo-eli', 'trade-demo-review-b', 'user-eli', 'user-carla', "
             "5, 1, 3, 'Exactly as described.', NULL, :visible, 0, NULL, :at)"
         ),
-        {"visible": _as_text(eli_reviewed + timedelta(days=7)), "at": _as_text(eli_reviewed)},
+        {"visible": review_visible_from(done, everyone_reviewed=False), "at": _as_text(eli_reviewed)},
     )
