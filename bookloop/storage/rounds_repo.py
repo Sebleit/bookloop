@@ -386,6 +386,17 @@ def my_trades(round_id: str, user_id: str) -> list[MyTrade]:
 
 def loops_in_round(round_id: str) -> list[list[MyTrade]]:
     """Every loop the round created, each as its trades in order around the circle."""
+    return _loops("l.round_id = :id", round_id)
+
+
+def loop_trades(loop_id: str) -> list[MyTrade]:
+    """One swap's trades (a direct swap or a round loop), in order around the circle."""
+    loops = _loops("l.id = :id", loop_id)
+    return loops[0] if loops else []
+
+
+def _loops(where: str, value: str) -> list[list[MyTrade]]:
+    # `where` is one of the two fixed conditions above, never text from a user.
     with transaction() as connection:
         rows = connection.execute(
             text(
@@ -397,10 +408,10 @@ def loops_in_round(round_id: str) -> list[list[MyTrade]]:
                 "JOIN books b ON b.id = c.book_id "
                 "JOIN profiles g ON g.id = t.giver_id "
                 "JOIN profiles r ON r.id = t.receiver_id "
-                "WHERE l.round_id = :round_id "
+                f"WHERE {where} "
                 "ORDER BY l.id, t.id"
             ),
-            {"round_id": round_id},
+            {"id": value},
         ).mappings().all()
 
     by_loop: dict[str, list[MyTrade]] = {}

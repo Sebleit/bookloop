@@ -17,8 +17,9 @@ from uuid import uuid4
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
-from bookloop.models import AuditLog, Profile, Review, Trade
+from bookloop.models import AuditLog, Loop, Profile, Review, Trade
 from bookloop.rules import reputation
+from bookloop.rules.handoffs import can_report_missing_handoff
 from bookloop.rules.reviews import arrived_as_described, is_misdescribed, is_visible, review_visible_from
 from bookloop.services.notify import notify
 from bookloop.storage.db import transaction
@@ -26,6 +27,7 @@ from bookloop.storage.db import transaction
 
 FLAGGED = "flagged as misdescribed"
 RESOLVED = "resolved flag"
+MISSING_HANDOFF = "reported a missing handoff"
 REVIEW_COLUMNS = (
     "id, trade_id, reviewer_id, reviewee_id, stars, as_described, actual_condition, "
     "comment, reply, visible_from, hidden_by_moderator, hidden_reason, created_at"
@@ -77,6 +79,20 @@ class HistoryItem:
     other_name: str
     status: str
     date: str | None
+
+
+@dataclass(frozen=True)
+class ProblemReport:
+    """Someone says a person in their swap didn't hand over their book."""
+
+    trade_id: str
+    loop_id: str
+    title: str
+    giver_id: str
+    giver_name: str
+    receiver_name: str
+    reporter_name: str
+    reported_at: str
 
 
 @dataclass(frozen=True)
@@ -487,6 +503,94 @@ def flagged_swaps() -> list[FlaggedSwap]:
             {"flagged": FLAGGED, "resolved": RESOLVED},
         ).mappings().all()
     return [FlaggedSwap(**row) for row in rows]
+
+
+def report_missing_handoff(loop_id: str, reporter_id: str, accused_id: str) -> None:
+    """Tell the moderators that someone in a swap didn't hand over their book.
+
+    Nothing is cancelled automatically: a book has already changed hands, so a
+    moderator checks what happened. The report stays open until it's resolved.
+    """
+    with transaction() as connection:
+        loop_row = connection.execute(
+            text(
+                "SELECT id, source, offer_id, round_id, status, meet_place, meet_time, "
+                "no_show_user_id FROM loops WHERE id = :loop_id"
+            ),
+            {"loop_id": loop_id},
+        ).mappings().first()
+        if loop_row is None:
+            raise ValueError("Swap not found.")
+        trades = [
+            Trade(**row)
+            for row in connection.execute(
+                text(
+                    "SELECT id, loop_id, copy_id, giver_id, receiver_id, handoff_code, "
+                    "code_attempts, status, completed_at FROM trades WHERE loop_id = :loop_id"
+                ),
+                {"loop_id": loop_id},
+            ).mappings()
+        ]
+        decision = can_report_missing_handoff(Loop(**dict(loop_row)), reporter_id, accused_id, trades)
+        if not decision.allowed:
+            raise ValueError(decision.reason)
+        trade = next(t for t in trades if t.giver_id == accused_id and t.status == "pending")
+        if trade.id in {report.trade_id for report in _open_problem_reports(connection)}:
+            raise ValueError("This has already been reported. A moderator will check it.")
+        _log(connection, reporter_id, MISSING_HANDOFF, "trades", trade.id)
+        names = dict(
+            connection.execute(
+                text("SELECT id, display_name FROM profiles WHERE id IN (:reporter, :accused)"),
+                {"reporter": reporter_id, "accused": accused_id},
+            ).all()
+        )
+        title = connection.execute(
+            text("SELECT b.title FROM copies c JOIN books b ON b.id = c.book_id WHERE c.id = :copy"),
+            {"copy": trade.copy_id},
+        ).scalar_one()
+
+    for moderator in _moderators():
+        notify(
+            moderator,
+            f"{names[reporter_id]} says {names[accused_id]} didn't hand over “{title}”. "
+            "Check it on the Moderator page.",
+            None,
+        )
+    notify(
+        accused_id,
+        f"{names[reporter_id]} reported that you didn't hand over “{title}”. "
+        "A moderator will check what happened.",
+        None,
+    )
+
+
+def _open_problem_reports(connection: Connection) -> list[ProblemReport]:
+    rows = connection.execute(
+        text(
+            "SELECT f.target_id AS trade_id, t.loop_id, f.created_at AS reported_at, b.title, "
+            "t.giver_id, g.display_name AS giver_name, rc.display_name AS receiver_name, "
+            "rp.display_name AS reporter_name FROM audit_log f "
+            "JOIN trades t ON t.id = f.target_id "
+            "JOIN copies c ON c.id = t.copy_id "
+            "JOIN books b ON b.id = c.book_id "
+            "JOIN profiles g ON g.id = t.giver_id "
+            "JOIN profiles rc ON rc.id = t.receiver_id "
+            "JOIN profiles rp ON rp.id = f.actor_id "
+            "WHERE f.action = :reported AND f.target_table = 'trades' AND NOT EXISTS ("
+            "  SELECT 1 FROM audit_log done WHERE done.action = :resolved "
+            "  AND done.target_table = 'trades' AND done.target_id = f.target_id"
+            "  AND done.created_at >= f.created_at"
+            ") ORDER BY f.created_at DESC"
+        ),
+        {"reported": MISSING_HANDOFF, "resolved": RESOLVED},
+    ).mappings().all()
+    return [ProblemReport(**row) for row in rows]
+
+
+def problem_reports() -> list[ProblemReport]:
+    """Reports of books not handed over that no moderator has resolved yet."""
+    with transaction() as connection:
+        return _open_problem_reports(connection)
 
 
 def resolve_flag(moderator_id: str, trade_id: str) -> None:
